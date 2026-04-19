@@ -20,7 +20,7 @@ endfunction
 function! syntax#DefineGitHubDiffSyntax()
 	" Hunk header @@ -1,3 +1,9 @@
 	syntax match GitDiffHunk '^@@.*@@'
-	highlight GitDiffHunk ctermfg=Magenta guifg=#87d7d7 cterm=none gui=none
+	highlight GitDiffHunk ctermfg=Magenta guifg=#d7afd7 cterm=none gui=none
 
 	" diff --git a/... b/...
 	syntax match GitDiffHeader '^diff --git .*'

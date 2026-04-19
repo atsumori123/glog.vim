@@ -19,19 +19,48 @@ function! s:ErrorMessage(msg) abort
 endfunction
 
 "---------------------------------------------------------------
+" バックグラウンド処理の実行
+"---------------------------------------------------------------
+function! s:RunBackgroundJob(cmd) abort
+	let exit = []
+	let lines = []
+	let jopts = {
+		\ 'out_cb': { j, str -> add(lines, str) },
+		\ 'err_cb': { j, str -> add(lines, str) },
+		\ 'exit_cb': { j, code -> add(exit, code) }}
+	let job = job_start(a:cmd, jopts)
+	call ch_close_in(job)
+	while ch_status(job) !~# '^closed$\|^fail$' || job_status(job) ==# 'run'
+		sleep 1m
+	endwhile
+
+	return [lines, exit[0]]
+endfunction
+
+"---------------------------------------------------------------
 " リポジトリ最上位ディレクトリの取得
 "---------------------------------------------------------------
 function! s:GetGitRoot() abort
-	let root = system('git -C ' . shellescape(expand('%:h:p')) . ' rev-parse --show-toplevel')
-	return v:shell_error != 0 ? '' : substitute(root, '\n$', '', '')
+	if exists('*ch_close_in')
+		let ret = s:RunBackgroundJob(['git', '-C', expand('%:h:p'), 'rev-parse', '--show-toplevel'])
+		return ret[1] == 0 ? ret[0][0] : ''
+	else
+		let root = system('git -C ' . shellescape(expand('%:h:p')) . ' rev-parse --show-toplevel')
+		return v:shell_error != 0 ? '' : substitute(root, '\n$', '', '')
+	endif
 endfunction
 
 "---------------------------------------------------------------
 " リポジトリ最上位ディレクトリから見た相対パスの取得
 "---------------------------------------------------------------
 function! s:GetRelative() abort
-	let relative = system('git -C ' . shellescape(expand('%:h:p')) . ' rev-parse --show-prefix')
-	return v:shell_error != 0 ? '' : substitute(relative, '\n$', '', '')
+	if exists('*ch_close_in')
+		let ret = s:RunBackgroundJob(['git', '-C', expand('%:h:p'), 'rev-parse', '--show-prefix'])
+		return ret[1] == 0 ? ret[0][0] : ''
+	else
+		let relative = system('git -C ' . shellescape(expand('%:h:p')) . ' rev-parse --show-prefix')
+		return v:shell_error != 0 ? '' : substitute(relative, '\n$', '', '')
+	endif
 endfunction
 
 "---------------------------------------------------------------
