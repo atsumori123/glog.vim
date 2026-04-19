@@ -9,6 +9,8 @@ let s:Git = {
 	\ 'ExeWinnr' : -1
 	\ }
 
+let s:SUPPORT_BGJOB = exists('*ch_close_in') ? 1 : 0
+
 "---------------------------------------------------------------
 " エラー表示
 "---------------------------------------------------------------
@@ -40,27 +42,28 @@ endfunction
 "---------------------------------------------------------------
 " リポジトリ最上位ディレクトリの取得
 "---------------------------------------------------------------
-function! s:GetGitRoot() abort
-	if exists('*ch_close_in')
-		let ret = s:RunBackgroundJob(['git', '-C', expand('%:h:p'), 'rev-parse', '--show-toplevel'])
-		return ret[1] == 0 ? ret[0][0] : ''
+function! s:GitCmd(command)
+	if s:SUPPORT_BGJOB
+		let result = s:RunBackgroundJob(a:command)
+		return result[1] == 0 ? result[0]: []
 	else
-		let root = system('git -C ' . shellescape(expand('%:h:p')) . ' rev-parse --show-toplevel')
-		return v:shell_error != 0 ? '' : substitute(root, '\n$', '', '')
+		let result = systemlist(join(a:command, ' '))
+		return v:shell_error == 0 ? result : []
 	endif
+endfunction
+
+"---------------------------------------------------------------
+" リポジトリ最上位ディレクトリの取得
+"---------------------------------------------------------------
+function! s:GetGitRoot() abort
+	return s:GitCmd(['git', '-C', expand('%:h:p'), 'rev-parse', '--show-toplevel'])
 endfunction
 
 "---------------------------------------------------------------
 " リポジトリ最上位ディレクトリから見た相対パスの取得
 "---------------------------------------------------------------
 function! s:GetRelative() abort
-	if exists('*ch_close_in')
-		let ret = s:RunBackgroundJob(['git', '-C', expand('%:h:p'), 'rev-parse', '--show-prefix'])
-		return ret[1] == 0 ? ret[0][0] : ''
-	else
-		let relative = system('git -C ' . shellescape(expand('%:h:p')) . ' rev-parse --show-prefix')
-		return v:shell_error != 0 ? '' : substitute(relative, '\n$', '', '')
-	endif
+	return s:GitCmd(['git', '-C', expand('%:h:p'), 'rev-parse', '--show-prefix'])
 endfunction
 
 "---------------------------------------------------------------
@@ -95,9 +98,6 @@ function! s:ShowDiff() abort
 		return
 	endif
 
-	" gitコマンド実行
-	let cmd = 'silent! read !git -C ' . s:Git['GitRoot'] . ' show ' . sha
-
 	" 既に__Glog__ウィンドウがある場合：内容を消去。ない場合は、ウィンドウを作る
 	if s:SwitchWindow('__Gdiff__') != -1
 		silent %d _
@@ -111,10 +111,9 @@ function! s:ShowDiff() abort
 		nnoremap <buffer> <silent> q :<C-u>call <SID>CloseDiff()<CR>
 	endif
 
-	" 表示
-	execute cmd
+	" gitコマンド実行して表示
+	silent! 0put = s:GitCmd(['git', '-C', s:Git['GitRoot'], 'show', sha])
 	normal! gg
-	delete _
 endfunction
 
 "---------------------------------------------------------------
@@ -141,8 +140,6 @@ function! s:ShowRevision()
 		return
 	endif
 
-	let cmd = 'silent! read !git -C ' . s:Git['GitRoot'] . ' show ' . sha . ":" . s:Git['RelativePath'] . s:Git['ExeFilename']
-
 	" 実行元のウィンドウに移動して実行
 	execute s:Git['ExeWinnr'] . 'wincmd w'
 
@@ -150,9 +147,9 @@ function! s:ShowRevision()
 	setlocal noswapfile
 	execute 'setlocal filetype=' . expand(s:Git['ExeFilename'], ':e')
 
-	execute cmd
+	" gitコマンド実行して表示
+	silent! 0put = s:GitCmd(['git', '-C', s:Git['GitRoot'], 'show', sha.':'.s:Git['RelativePath'].s:Git['ExeFilename']])
 	normal! gg
-	delete _
 endfunction
 
 "---------------------------------------------------------------
@@ -169,9 +166,9 @@ function! glog#GitLog(...) abort
 		return
 	else
 		" リポジトリ最上位ディレクトリ
-		let s:Git['GitRoot'] = root
+		let s:Git['GitRoot'] = root[0]
 		" リポジトリ最上位ディレクトリから見た相対パス
-		let s:Git['RelativePath'] = s:GetRelative()
+		let s:Git['RelativePath'] = s:GetRelative()[0]
 		" Glogを実行したファイル名
 		let s:Git['ExeFilename'] = expand('%:t')
 		" Glogを実行したウィンドウ番号
@@ -179,9 +176,11 @@ function! glog#GitLog(...) abort
 	endif
 
 	" git log コマンドの実行
-	let cmd = 'git -C ' . s:Git['GitRoot'] . ' log --pretty=format:"%h %ad %s" --date=short'
-	let cmd .= s:Git['SpecifyFile'] ? " -- " . s:Git['RelativePath'] . s:Git['ExeFilename'] : ''
-	let log = systemlist(cmd)
+	let cmd = ['git', '-C', s:Git['GitRoot'], 'log',
+	  			\ s:SUPPORT_BGJOB ? '--pretty=format:%h %ad %s' : '--pretty=format:"%h %ad %s"',
+			  	\ '--date=short']
+	let cmd += s:Git['SpecifyFile'] ? ['--', s:Git['RelativePath'] . s:Git['ExeFilename']] : []
+	let log = s:GitCmd(cmd)
 
 	" 実行元のウィンドウ番号, ディレクトリ、ファイル名を記憶
 	let s:target_winnr = winnr()
