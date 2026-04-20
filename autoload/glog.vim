@@ -131,6 +131,57 @@ function! s:CloseDiff() abort
 endfunction
 
 "---------------------------------------------------------------
+" 左右対比差分の表示（親コミット vs 現在のコミット）
+"---------------------------------------------------------------
+function! s:ShowDiffSideBySide() abort
+	let sha = s:GetSHAFromLine()
+	if empty(sha)
+		call s:ErrorMessage("No commit hash found")
+		return
+	endif
+
+	" 実行元のウィンドウに移動
+	execute s:Git['ExeWinnr'] . 'wincmd w'
+
+	" 新しいタブで左右対比を開く
+	tabnew
+
+	" ===== 左ペイン：親コミット（1つ前のリビジョン） =====
+	execute 'enew'
+	setlocal noswapfile
+	execute 'setlocal filetype=' . expand(s:Git['ExeFilename'], ':e')
+	setlocal buftype=nofile bufhidden=wipe
+
+	" 親コミットのファイル版を表示
+	let file_path = s:Git['RelativePath'] . s:Git['ExeFilename']
+	silent! 0put = s:GitCmd(['git', '-C', s:Git['GitRoot'], 'show', sha.':'.(file_path)])
+	normal! gg
+	" diff モード有効化
+	diffthis
+	" バッファ名を設定
+	execute 'file [' . sha[0:6] . '^] ' . s:Git['ExeFilename']
+
+	" ===== 右ペイン：現在のコミット =====
+	" 垂直分割で右ペインを追加
+	vnew
+	execute 'enew'
+	setlocal noswapfile
+	execute 'setlocal filetype=' . expand(s:Git['ExeFilename'], ':e')
+	setlocal buftype=nofile bufhidden=wipe
+
+	" 現在のコミットのファイル版を表示
+	silent! 0put = s:GitCmd(['git', '-C', s:Git['GitRoot'], 'show', sha.'^:'.(file_path)])
+	normal! gg
+	" diff モード有効化
+	diffthis
+	" バッファ名を設定
+	execute 'file [' . sha[0:6] . '] ' . s:Git['ExeFilename']
+
+	" フォーカスを左ペインに戻す
+	wincmd h
+endfunction
+
+"---------------------------------------------------------------
 " 指定リビジョンを表示
 "---------------------------------------------------------------
 function! s:ShowRevision()
@@ -140,16 +191,20 @@ function! s:ShowRevision()
 		return
 	endif
 
-	" 実行元のウィンドウに移動して実行
+	" 実行元のウィンドウに移動
 	execute s:Git['ExeWinnr'] . 'wincmd w'
 
 	execute 'enew'
 	setlocal noswapfile
 	execute 'setlocal filetype=' . expand(s:Git['ExeFilename'], ':e')
+"	setlocal buftype=nofile bufhidden=wipe
 
 	" gitコマンド実行して表示
 	silent! 0put = s:GitCmd(['git', '-C', s:Git['GitRoot'], 'show', sha.':'.s:Git['RelativePath'].s:Git['ExeFilename']])
 	normal! gg
+
+	" バッファ名を設定
+	execute 'file [' . sha[0:6] . '] ' . s:Git['ExeFilename']
 endfunction
 
 "---------------------------------------------------------------
@@ -177,8 +232,8 @@ function! glog#GitLog(...) abort
 
 	" git log コマンドの実行
 	let cmd = ['git', '-C', s:Git['GitRoot'], 'log',
-	  			\ s:SUPPORT_BGJOB ? '--pretty=format:%h %ad %s' : '--pretty=format:"%h %ad %s"',
-			  	\ '--date=short']
+				\ s:SUPPORT_BGJOB ? '--pretty=format:%h %ad %s' : '--pretty=format:"%h %ad %s"',
+				\ '--date=short']
 	let cmd += s:Git['SpecifyFile'] ? ['--', s:Git['RelativePath'] . s:Git['ExeFilename']] : []
 	let log = s:GitCmd(cmd)
 
@@ -200,6 +255,7 @@ function! glog#GitLog(...) abort
 		nnoremap <buffer> <silent> q :close<CR>
 		nnoremap <buffer> <silent> p :<C-u>call <SID>ShowRevision()<CR>
 		nnoremap <buffer> <silent> <CR> :<C-u>call <SID>ShowDiff()<CR>
+		nnoremap <buffer> <silent> d :<C-u>call <SID>ShowDiffSideBySide()<CR>
 	endif
 
 	" git log をバッファに展開
