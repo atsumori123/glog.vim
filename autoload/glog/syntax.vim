@@ -4,7 +4,7 @@ set cpoptions&vim
 "---------------------------------------------------------------
 " git log ハイライト
 "---------------------------------------------------------------
-function! syntax#DefineGitLogSyntax()
+function! glog#syntax#log()
     " ハッシュ値
     syntax match GitLogHash /^\x\+/
     highlight GitLogHash ctermfg=187 guifg=#d7d7af cterm=none gui=none
@@ -17,7 +17,7 @@ endfunction
 "---------------------------------------------------------------
 " diff ハイライト
 "---------------------------------------------------------------
-function! syntax#DefineGitHubDiffSyntax()
+function! glog#syntax#diff()
     " commit ハッシュ行（commit 行頭）
     syntax match GitDiffCommit '^commit \x\+'
     highlight GitDiffCommit ctermfg=Yellow guifg=#ffff87 cterm=none gui=none
@@ -73,6 +73,19 @@ function! syntax#DefineGitHubDiffSyntax()
     " 追加行（GitHubの緑）
     syntax match GitDiffAdded '^+.*'
     highlight GitDiffAdded ctermfg=Green guifg=#afd7af cterm=none gui=none
+endfunction
+
+"---------------------------------------------------------------
+" git status ハイライト
+"---------------------------------------------------------------
+function! glog#syntax#status()
+	" staging (M / A / D / R / ?)
+    syntax match GitStaging '\%1c.'
+	highlight GitStaging  ctermfg=Green guifg=#afd7af cterm=none gui=none
+
+	" workings(M / A / D / R / ?)
+    syntax match GitWorking '\%2c.'
+	highlight GitWorking ctermfg=Red guifg=#F08650 cterm=none gui=none
 endfunction
 
 let &cpoptions = s:save_cpo

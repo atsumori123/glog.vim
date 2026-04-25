@@ -6,12 +6,14 @@ if exists('g:loaded_glog')
 endif
 let g:loaded_glog = 1
 
-command! -bar -nargs=? Glog call glog#GitLog(<f-args>)
+command! -bar -nargs=? Glog call glog#log(<f-args>)
+command! -bar -nargs=? Gstatus call glog#status(<f-args>)
 
-augroup GitDiffSyntax
+augroup GlogSyntax
 	autocmd!
-	autocmd FileType gitdiff call syntax#DefineGitHubDiffSyntax()
-	autocmd FileType gitlog call syntax#DefineGitLogSyntax()
+	autocmd FileType gdiff call glog#syntax#diff()
+	autocmd FileType glog call glog#syntax#log()
+	autocmd FileType gstatus call glog#syntax#status()
 augroup END
 
 let &cpoptions = s:save_cpo
