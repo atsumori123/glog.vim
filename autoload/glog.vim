@@ -71,6 +71,7 @@ function! s:open_window(win_name, edit, data) abort
 		setlocal buftype=nofile bufhidden=wipe noswapfile
 		setlocal nobuflisted
 		setlocal nowrap
+		setlocal bufhidden=delete
 		setlocal winfixheight winfixwidth
 	endif
 
@@ -170,7 +171,7 @@ endfunction
 "---------------------------------------------------------------
 function! s:show_diff_side_by_side_head() abort
 	let filename = s:get_filepath_from_line()
-	if empty(filename) || !filereadable(filename)
+	if empty(filename) || !filereadable(s:get('GitRoot') . (has('unix') ? '/' : '\') . filename)
 		call s:errmsg("No file selected")
 		return
 	endif
