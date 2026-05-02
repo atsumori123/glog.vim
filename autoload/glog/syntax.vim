@@ -20,6 +20,10 @@ function! glog#syntax#log()
 	" ファイル状態 (M以外)
 	syntax match GitStatO '^\s\+\zs[ADRUTC]\ze\s'
     highlight GitStatO ctermfg=209 guifg=#F08650 cterm=none gui=none
+
+	" Auther
+	syntax match GitAuther '.*|.*\s\zs\S\+$'
+    highlight GitAuther ctermfg=243 guifg=#808080 cterm=italic gui=italic
 endfunction
 
 "---------------------------------------------------------------

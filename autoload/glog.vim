@@ -49,6 +49,7 @@ function! s:open_window(win_name, edit, data) abort
 		if winnr() != winnr
 			execute winnr.'wincmd w'
 		endif
+		setlocal modifiable
 		silent %d _
 	else
 		" ウィンドウが無い場合は作る 
@@ -62,6 +63,10 @@ function! s:open_window(win_name, edit, data) abort
 
 	silent! 0put = a:data
 	normal! gg
+	silent! $delete _
+
+	" 変更禁止
+	setlocal nomodifiable
 endfunction
 
 "---------------------------------------------------------------
@@ -139,7 +144,6 @@ endfunction
 "---------------------------------------------------------------
 function! s:close_diff() abort
 	let winnr = bufwinnr('__glog__')
-	echo winnr
 	if winnr != -1
 		if winnr() != winnr
 			execute winnr.'wincmd w'
@@ -238,15 +242,18 @@ function! s:show_diff() abort
 	" glog起動ウィンドウに移動
 	execute s:get('ExeWinnr') . 'wincmd w'
 
-	execute 'enew'
+	enew
 	setlocal noswapfile
 	setlocal filetype=gdiff
 	setlocal buftype=nofile
-"	setlocal buftype=nofile
 
 	" 描画
 	silent! 0put = lines
+	silent! $delete _
 	normal! gg
+
+	" 変更禁止
+	setlocal nomodifiable
 
 	" バッファ名を設定
 	let name = sha ==# '0000000' ? 'WORKING' : sha[0:6]
@@ -264,19 +271,23 @@ function! s:show_revision()
 	if empty(filename) | return | endif
 
 	" gitコマンドを実行
-	let lines! = glog#git#git_cmd(['git', '-C', s:get('GitRoot'), 'show', sha.':'.filename])
+	let lines = glog#git#git_cmd(['git', '-C', s:get('GitRoot'), 'show', sha.':'.filename])
 
 	" glog起動ウィンドウに移動
 	execute s:get('ExeWinnr') . 'wincmd w'
 
-	execute 'enew'
+	enew
 	setlocal noswapfile
+	setlocal buftype=nofile
 	execute 'setlocal filetype=' . fnamemodify(filename, ':e')
-"	setlocal buftype=nofile bufhidden=wipe
 
 	" 描画
 	silent! 0put = lines
+	silent! $delete _
 	normal! gg
+
+	" 変更禁止
+	setlocal nomodifiable
 
 	" バッファ名を設定
 	execute 'file [' . sha[0:6] . '] ' . fnamemodify(filename, ':t')
@@ -291,21 +302,23 @@ function! s:get_status() abort
 			\ [{
 			\ 'sha':  '0000000',
 			\ 'date': strftime('%Y-%m-%d'),
+			\ 'auther': '',
 			\ 'log':  'WORKING',
-			\ 'file': lines
+			\ 'files': lines
 			\ }]
 endfunction
 
 "---------------------------------------------------------------
 " 履歴を取得
 "---------------------------------------------------------------
-function! s:get_git_history() abort
+function! s:get_git_history(lognum) abort
 	" Gitコマンドの実行（ハッシュ、日付、ログ、ファイルステータスを取得）
 	let cmd = ['git', '-C', s:get('GitRoot'), 'log',
-				\ glog#git#is_bgjob() ? '--pretty=format:COMMIT:%h|%ad|%s' : '--pretty=format:"COMMIT:%h|%ad|%s"',
+				\ glog#git#is_bgjob() ? '--pretty=format:COMMIT:%h|%ad|%an|%s' : '--pretty=format:"COMMIT:%h|%ad|%s"',
 				\ glog#git#is_bgjob() ? '--date=format:%Y-%m-%d' : '--date=format:"%Y-%m-%d"',
 				\ '--name-status']
 	let cmd += s:get('SpecifyFile') ? ['--', s:get('ExeFile')] : []
+	let cmd += a:lognum != -1 ? ['-n', a:lognum] : []
 
 	let lines = glog#git#git_cmd(cmd)
 
@@ -323,12 +336,13 @@ function! s:get_git_history() abort
 			let current_entry = {
 				\ 'sha':  parts[0],
 				\ 'date': parts[1],
-				\ 'log':  parts[2],
-				\ 'file': []
+				\ 'auther': parts[2],
+				\ 'log':  parts[3],
+				\ 'files': []
 				\ }
 		elseif line =~# '^\([MADRUTC]\)\s'
 			" ファイル変更行（M, A, Dなどから始まる行）をリストに追加
-			call add(current_entry.file, line)
+			call add(current_entry.files, line)
 		endif
 	endfor
 
@@ -346,7 +360,7 @@ endfunction
 function! s:get_commit_file(sha) abort
 	for entry in b:GitHistory
 		if entry.sha ==# a:sha
-			return entry.file
+			return entry.files
 		endif
 	endfor
 	return []
@@ -388,12 +402,16 @@ function! s:toggle_commit_details(key) abort
 			endwhile
 
 			" 折り畳み開始から終了までを削除
+			setlocal modifiable
 			execute printf('silent %d,%ddelete _', start, end - 1)
 			normal! k
+			setlocal nomodifiable
 
 		elseif a:key ==# '-'
 			" まだ展開されていない場合 --> 履歴データからコミットファイルを取得して展開
+			setlocal modifiable
 			call append('.', map(copy(s:get_commit_file(sha)), '"  " . v:val'))
+			setlocal nomodifiable
 		endif
 
 	else			" カーソルが展開したところ
@@ -425,8 +443,10 @@ function! s:toggle_commit_details(key) abort
 			endwhile
 
 			" 折り畳み開始から終了までを削除
+			setlocal modifiable
 			execute printf('silent %d,%ddelete _', start, end - 1)
 			normal! k
+			setlocal nomodifiable
 		endif
 	endif
 endfunction
@@ -435,21 +455,27 @@ endfunction
 " git log
 "---------------------------------------------------------------
 function! glog#log(...) abort
+	" 引数取得
+	let arg1 = get(a:000, 0, '')
+	let arg2 = get(a:000, 1, '')
+	let lognum = arg1 =~# '^-\?\d\+$' ? str2nr(arg1) : arg2 =~# '^-\?\d\+$' ? str2nr(arg2) : 20
+	let spcify_file = arg1 ==# '.' ? 1 : arg2 ==# '.' ? 1 : 0
+
 	" glog初期化
-	if s:glog_init(get(a:000, 0, '') ==# '.' ? 1 : 0) == 0
+	if s:glog_init(spcify_file) == 0
 		call s:errmsg("Out of git management")
 		return
 	endif
 
 	" WORKKINGの変更状況とコミット履歴を取得
-	let history = s:get_status() + s:get_git_history()
+	let history = s:get_status() + s:get_git_history(lognum)
 	if empty(history)
 		call s:errmsg("No change. No commit history.")
 		return
 	endif
 
 	" コミット履歴リストを作成(ハッシュ | yyyy-mm-dd | ログ)
-	let output = map(copy(history), 'v:val.sha . " | " . v:val.date . " | " . v:val.log')
+	let output = map(copy(history), 'v:val.sha . " | " . v:val.date . " | " . v:val.log . " " . v:val.auther')
 
 	" 出力用ウィンドウ作成&表示
 	call s:open_window('__glog__', 'botright 10 split', output)

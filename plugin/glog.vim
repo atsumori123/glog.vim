@@ -6,7 +6,7 @@ if exists('g:loaded_glog')
 endif
 let g:loaded_glog = 1
 
-command! -bar -nargs=? Glog call glog#log(<f-args>)
+command! -bar -nargs=* Glog call glog#log(<f-args>)
 
 augroup GlogSyntax
 	autocmd!
