@@ -5,13 +5,21 @@ set cpoptions&vim
 " git log ハイライト
 "---------------------------------------------------------------
 function! glog#syntax#log()
-    " ハッシュ値
-    syntax match GitLogHash /^\x\+/
-    highlight GitLogHash ctermfg=187 guifg=#d7d7af cterm=none gui=none
+    " ハッシュ
+	syntax match GitHash '^\v[0-9a-f]+'
+    highlight GitHash ctermfg=151 guifg=#afd7af cterm=none gui=none
 
     " 日付（YYYY-MM-DD）
-    syntax match GitLogDate /\d\{4}-\d\{2}-\d\{2}/
-    highlight GitLogDate ctermfg=151 guifg=#afd7af cterm=none gui=none
+    syntax match GitDate '\v\|\s\zs\d{4}-\d{2}-\d{2}\ze\s\|'
+    highlight GitDate ctermfg=187 guifg=#d7d7af cterm=none gui=none
+
+	" ファイル状態 (M)
+	syntax match GitStatM '^\s\+\zsM\ze\s'
+    highlight GitStatM ctermfg=151 guifg=#afd7af cterm=none gui=none
+
+	" ファイル状態 (M以外)
+	syntax match GitStatO '^\s\+\zs[ADRUTC]\ze\s'
+    highlight GitStatO ctermfg=209 guifg=#F08650 cterm=none gui=none
 endfunction
 
 "---------------------------------------------------------------
@@ -60,7 +68,7 @@ function! glog#syntax#diff()
 
     " --- a/file
     syntax match GitDiffOldFile '^--- .*'
-    highlight GitDiffOldFile ctermfg=Red guifg=#F08650 cterm=none gui=none
+    highlight GitDiffOldFile ctermfg=209 guifg=#F08650 cterm=none gui=none
 
     " +++ b/file
     syntax match GitDiffNewFile '^+++ .*'
@@ -68,7 +76,7 @@ function! glog#syntax#diff()
 
     " 削除行（GitHubの赤）
     syntax match GitDiffRemoved '^-.*'
-    highlight GitDiffRemoved ctermfg=Red guifg=#F08650 cterm=none gui=none
+    highlight GitDiffRemoved ctermfg=209 guifg=#F08650 cterm=none gui=none
 
     " 追加行（GitHubの緑）
     syntax match GitDiffAdded '^+.*'
@@ -85,7 +93,7 @@ function! glog#syntax#status()
 
 	" workings(M / A / D / R / ?)
     syntax match GitWorking '\%2c.'
-	highlight GitWorking ctermfg=Red guifg=#F08650 cterm=none gui=none
+	highlight GitWorking ctermfg=209 guifg=#F08650 cterm=none gui=none
 endfunction
 
 let &cpoptions = s:save_cpo

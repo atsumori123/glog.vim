@@ -6,7 +6,7 @@ set cpoptions&vim
 "---------------------------------------------------------------
 function! s:glog_init(speify_file) abort
 	let git_root = glog#git#get_git_root()
-	if empty(git_root[0]) | return 0 | endif
+	if empty(git_root) | return 0 | endif
 
 	let s:glog = {}
 	let s:glog['GitRoot'] = git_root[0]
@@ -32,41 +32,26 @@ function! s:errmsg(msg) abort
 endfunction
 
 "---------------------------------------------------------------
-" ハッシュ値の抽出 (git log用)
-"---------------------------------------------------------------
-function! s:get_sha_frome_line() abort
-	return matchstr(getline('.'), '^\x\+')
-endfunction
-
-"---------------------------------------------------------------
-" ファイル名の抽出 (git status用)
+" ファイル名の抽出
 "---------------------------------------------------------------
 function! s:get_filepath_from_line() abort
 	return matchstr(getline('.'), '\v\S+/\S+')
 endfunction
 
 "---------------------------------------------------------------
-" 指定ウィンドウに移動
-"---------------------------------------------------------------
-function! s:switch_window(window_name) abort
-	let winnr = bufwinnr(a:window_name)
-	if winnr != -1
-		if winnr() != winnr
-			execute winnr.'wincmd w'
-		endif
-	endif
-
-	return winnr
-endfunction
-
-"---------------------------------------------------------------
 " ウィンドウ作成
 "---------------------------------------------------------------
 function! s:open_window(win_name, edit, data) abort
-	" 既に__glog__ウィンドウがある場合は内容を消去。ない場合はウィンドウを作る
-	if s:switch_window(a:win_name) != -1
+	let winnr = bufwinnr(a:win_name)
+
+	if winnr != -1
+		" 既にウィンドウがある場合は、ウィンドウに移って内容消去
+		if winnr() != winnr
+			execute winnr.'wincmd w'
+		endif
 		silent %d _
 	else
+		" ウィンドウが無い場合は作る 
 		execute 'silent! ' . a:edit . ' ' . a:win_name
 		setlocal buftype=nofile bufhidden=wipe noswapfile
 		setlocal nobuflisted
@@ -88,45 +73,73 @@ function! s:open_sidebyside(file, data) abort
 	execute 'setlocal filetype=' . fnamemodify(a:file, ':e')
 	setlocal buftype=nofile bufhidden=wipe
 
+	" 対となるバッファ番号の初期化
+	let b:glog_sidebyside_peer = -1
+
+	" diffバッファ自動クローズを登録
+	call s:setup_sidebyside_autocmd()
+
+	" ショートカットキー
+	nnoremap <buffer> <silent> q :close<CR>
+
 	silent! 0put = a:data
 	normal! gg
 endfunction
 
 "---------------------------------------------------------------
-" 差分の表示
+" diffバッファクローズ用autocmd
 "---------------------------------------------------------------
-function! s:show_diff(git_cmd) abort
-	let sha = a:git_cmd ==# 'diff' ? s:get_sha_frome_line() : ''
-	let filename = a:git_cmd ==# 'diff' ? '' : s:get_filepath_from_line()
+function! s:setup_sidebyside_autocmd() abort
+	let grp = 'glog_sidebyside_' . bufnr('%')
+	execute 'augroup ' . grp
+	execute 'autocmd!'
+	execute 'autocmd BufWipeout <buffer> call <SID>on_sidebyside_buffer_wipeout()'
+	execute 'augroup END'
+endfunction
 
-	" gitコマンドを実行
-	if empty(sha)
-		let cmd = ['git', '-C', s:get('GitRoot'), 'diff', filename]
-	else
-		let cmd = ['git', '-C', s:get('GitRoot'), 'show', sha]
-		let cmd += !empty(filename) ? ['--', filename] : []
-	endif
-	let result = glog#git#git_cmd(cmd)
-	if empty(result)
-		call s:errmsg("No difference")
+"---------------------------------------------------------------
+" diff用バッファを閉じたときのコールバック関数
+"---------------------------------------------------------------
+function! s:on_sidebyside_buffer_wipeout() abort
+	" diffモード中だったら終了させておく
+	if &diff | diffoff! | endif
+
+	" 再帰的に閉じる処理が動作するのを防ぐ
+	if exists('s:sidebyside_wipe') && s:sidebyside_wipe
 		return
 	endif
 
-	" 出力用ウィンドウ作成
-	call s:open_window('__gdiff__', 'new', result)
-	setlocal filetype=gdiff
+	" もう一方のバッファ番号を取得
+	let peer = getbufvar(bufnr('%'), 'glog_sidebyside_peer', -1)
+	if peer == -1 || !bufexists(peer)
+		return
+	endif
 
-	" キーマップを定義
-	nnoremap <buffer> <silent> q :<C-u>call <SID>close_diff()<CR>
+	" 再帰的に閉じる処理が動作しないようにフラグをオン
+	let s:sidebyside_wipe = 1
+
+	" もう一方のバッファを閉じる
+	execute 'bwipeout! ' . peer
+
+	unlet! s:sidebyside_wipe
+
+	call s:close_diff()
+endfunction
+
+"---------------------------------------------------------------
+" 互いのdiffバッファ番号をバッファ情報として記憶
+"---------------------------------------------------------------
+function! s:set_sidebyside_pair(left, right) abort
+	call setbufvar(a:left, 'glog_sidebyside_peer', a:right)
+	call setbufvar(a:right, 'glog_sidebyside_peer', a:left)
 endfunction
 
 "---------------------------------------------------------------
 " 差分表示を閉じる
 "---------------------------------------------------------------
 function! s:close_diff() abort
-	close
-
 	let winnr = bufwinnr('__glog__')
+	echo winnr
 	if winnr != -1
 		if winnr() != winnr
 			execute winnr.'wincmd w'
@@ -137,9 +150,8 @@ endfunction
 "---------------------------------------------------------------
 " 左右対比差分の表示（親コミット vs 現在のコミット）
 "---------------------------------------------------------------
-function! s:show_diff_side_by_side() abort
-	let sha = s:get_sha_frome_line()
-	let filename = s:get('ExeFile')
+function! s:diff_side_by_side(sha) abort
+	let filename = s:get_filepath_from_line()
 
 	" 実行元のウィンドウに移動
 	execute s:get('ExeWinnr') . 'wincmd w'
@@ -148,19 +160,23 @@ function! s:show_diff_side_by_side() abort
 	tabnew
 
 	" ===== 左ペイン：親コミット（1つ前のリビジョン） =====
-	let result = glog#git#git_cmd(['git', '-C', s:get('GitRoot'), 'show', sha . '^:' . filename])
-	call s:open_sidebyside(s:get('ExeFile'), result)
+	let result = glog#git#git_cmd(['git', '-C', s:get('GitRoot'), 'show', a:sha . '^:' . filename])
+	call s:open_sidebyside(filename, result)
+	let left_bufnr = bufnr('%')
 	diffthis
-	execute 'file [' . sha[0:6] . '] ' . fnamemodify(filename, ':t')
+	execute 'file [' . a:sha[0:6] . '] ' . fnamemodify(filename, ':t')
 
 	" 画面を左右に分割
 	bel vnew
 
 	" ===== 右ペイン：現在のコミット =====
-	let result = glog#git#git_cmd(['git', '-C', s:get('GitRoot'), 'show', sha . ':' . filename])
-	call s:open_sidebyside(s:get('ExeFile'), result)
+	let result = glog#git#git_cmd(['git', '-C', s:get('GitRoot'), 'show', a:sha . ':' . filename])
+	call s:open_sidebyside(filename, result)
+	let right_bufnr = bufnr('%')
 	diffthis
-	execute 'file [' . sha[0:6] . '^] ' . fnamemodify(filename, ':t')
+	execute 'file [' . a:sha[0:6] . '^] ' . fnamemodify(filename, ':t')
+
+	call s:set_sidebyside_pair(left_bufnr, right_bufnr)
 
 	" フォーカスを左ペインに戻す
 	wincmd h
@@ -169,7 +185,7 @@ endfunction
 "---------------------------------------------------------------
 " 左右対比差分の表示（HEAD vs ワーキングディレクトリ）
 "---------------------------------------------------------------
-function! s:show_diff_side_by_side_head() abort
+function! s:diff_side_by_side_head() abort
 	let filename = s:get_filepath_from_line()
 	if empty(filename) || !filereadable(s:get('GitRoot') . (has('unix') ? '/' : '\') . filename)
 		call s:errmsg("No file selected")
@@ -185,6 +201,7 @@ function! s:show_diff_side_by_side_head() abort
 	" ===== 左ペイン：HEAD のバージョン =====
 	let result = glog#git#git_cmd(['git', '-C', s:get('GitRoot'), 'show', 'HEAD:' . filename])
 	call s:open_sidebyside(filename, result)
+	let left_bufnr = bufnr('%')
 	diffthis
 	execute 'file [HEAD] ' . fnamemodify(filename, ':t')
 
@@ -194,37 +211,224 @@ function! s:show_diff_side_by_side_head() abort
 	" ===== 右ペイン：ワーキングディレクトリのバージョン =====
 	let working_content = readfile(s:get('GitRoot') . '/' . filename)
 	call s:open_sidebyside(filename, working_content)
+	let right_bufnr = bufnr('%')
 	diffthis
 	execute 'file [WORKING] ' . fnamemodify(filename, ':t')
+
+	call s:set_sidebyside_pair(left_bufnr, right_bufnr)
 
 	" フォーカスを左ペインに戻す
 	wincmd h
 endfunction
 
 "---------------------------------------------------------------
-" 指定リビジョンを表示
+" コミット差分の表示
 "---------------------------------------------------------------
-function! s:show_revision()
-	let sha = s:get_sha_frome_line()
-	if empty(sha)
-		call s:errmsg("No commit hash found")
-		return
+function! s:show_diff() abort
+	let sha = s:get_hash(line('.'))
+	if empty(sha) | return | endif
+
+	" gitコマンドを実行
+	if sha ==# '0000000'
+		let lines = glog#git#git_cmd(['git', '-C', s:get('GitRoot'), 'diff'])
+	else
+		let lines = glog#git#git_cmd(['git', '-C', s:get('GitRoot'), 'show', sha])
 	endif
 
-	" 実行元のウィンドウに移動
+	" glog起動ウィンドウに移動
 	execute s:get('ExeWinnr') . 'wincmd w'
 
 	execute 'enew'
 	setlocal noswapfile
-	execute 'setlocal filetype=' . fnamemodify(s:get('ExeFile'), ':e')
-"	setlocal buftype=nofile bufhidden=wipe
+	setlocal filetype=gdiff
+	setlocal buftype=nofile
+"	setlocal buftype=nofile
 
-	" gitコマンド実行して表示
-	silent! 0put = glog#git#git_cmd(['git', '-C', s:get('GitRoot'), 'show', sha.':'.s:get('ExeFile')])
+	" 描画
+	silent! 0put = lines
 	normal! gg
 
 	" バッファ名を設定
-	execute 'file [' . sha[0:6] . '] ' . fnamemodify(s:get('ExeFile'), ':t')
+	let name = sha ==# '0000000' ? 'WORKING' : sha[0:6]
+	execute 'file [' . name . '] '
+endfunction
+
+"---------------------------------------------------------------
+" 指定リビジョンを表示
+"---------------------------------------------------------------
+function! s:show_revision()
+	let sha = s:get_hash(line('.'))
+	if empty(sha) || sha ==# '0000000' | return | endif
+
+	let filename = s:get_filepath_from_line()
+	if empty(filename) | return | endif
+
+	" gitコマンドを実行
+	let lines! = glog#git#git_cmd(['git', '-C', s:get('GitRoot'), 'show', sha.':'.filename])
+
+	" glog起動ウィンドウに移動
+	execute s:get('ExeWinnr') . 'wincmd w'
+
+	execute 'enew'
+	setlocal noswapfile
+	execute 'setlocal filetype=' . fnamemodify(filename, ':e')
+"	setlocal buftype=nofile bufhidden=wipe
+
+	" 描画
+	silent! 0put = lines
+	normal! gg
+
+	" バッファ名を設定
+	execute 'file [' . sha[0:6] . '] ' . fnamemodify(filename, ':t')
+endfunction
+
+"---------------------------------------------------------------
+" WORKINGの変更状況を取得
+"---------------------------------------------------------------
+function! s:get_status() abort
+	let lines = glog#git#git_cmd(['git', '-C', s:get('GitRoot'), 'status', '-s', '-uno'])
+	return empty(lines) ? [] :
+			\ [{
+			\ 'sha':  '0000000',
+			\ 'date': strftime('%Y-%m-%d'),
+			\ 'log':  'WORKING',
+			\ 'file': lines
+			\ }]
+endfunction
+
+"---------------------------------------------------------------
+" 履歴を取得
+"---------------------------------------------------------------
+function! s:get_git_history() abort
+	" Gitコマンドの実行（ハッシュ、日付、ログ、ファイルステータスを取得）
+	let cmd = ['git', '-C', s:get('GitRoot'), 'log',
+				\ glog#git#is_bgjob() ? '--pretty=format:COMMIT:%h|%ad|%s' : '--pretty=format:"COMMIT:%h|%ad|%s"',
+				\ glog#git#is_bgjob() ? '--date=format:%Y-%m-%d' : '--date=format:"%Y-%m-%d"',
+				\ '--name-status']
+	let cmd += s:get('SpecifyFile') ? ['--', s:get('ExeFile')] : []
+
+	let lines = glog#git#git_cmd(cmd)
+
+	let history = []
+	let current_entry = {}
+	for line in lines
+		if line =~# '^COMMIT:'
+			" 新しいコミット行が見つかった場合、これまでのエントリを保存
+			if !empty(current_entry)
+				call add(history, current_entry)
+			endif
+
+			" コミット情報をパースして辞書を初期化
+			let parts = split(line[7:], '|') " 'COMMIT:' を除いて分割
+			let current_entry = {
+				\ 'sha':  parts[0],
+				\ 'date': parts[1],
+				\ 'log':  parts[2],
+				\ 'file': []
+				\ }
+		elseif line =~# '^\([MADRUTC]\)\s'
+			" ファイル変更行（M, A, Dなどから始まる行）をリストに追加
+			call add(current_entry.file, line)
+		endif
+	endfor
+
+	" 最後のコミットを追加
+	if !empty(current_entry)
+		call add(history, current_entry)
+	endif
+
+	return history
+endfunction
+
+"---------------------------------------------------------------
+" コミットファイルリストの取得
+"---------------------------------------------------------------
+function! s:get_commit_file(sha) abort
+	for entry in b:GitHistory
+		if entry.sha ==# a:sha
+			return entry.file
+		endif
+	endfor
+	return []
+endfunction
+
+"---------------------------------------------------------------
+" ハッシュ値の取得
+"---------------------------------------------------------------
+function! s:get_hash(lnum) abort
+	let i = a:lnum
+	let sha = ''
+	while i > 0 && empty(sha)
+		let sha = matchstr(getline(i), '^\v[0-9a-f]+')
+		let i -= 1
+	endwhile
+	return sha
+endfunction
+
+"---------------------------------------------------------------
+" コミット情報の表示/非表示
+"---------------------------------------------------------------
+function! s:toggle_commit_details(key) abort
+	let line = getline('.')
+
+	" 行頭のハッシュ値を取得
+	let sha = matchstr(line, '^\v[0-9a-f]+')
+
+	if !empty(sha)	" カーソルがハッシュのところ
+		if getline(line('.') + 1) =~# '^\s\+'
+			" すでに展開されている場合 --> 折り畳み
+
+			" 折り畳み開始位置
+			let start = line('.') + 1
+
+			" 折り畳み終了位置
+			let end = start
+			while getline(end) =~# '^\s\+'
+				let end += 1
+			endwhile
+
+			" 折り畳み開始から終了までを削除
+			execute printf('silent %d,%ddelete _', start, end - 1)
+			normal! k
+
+		elseif a:key ==# '-'
+			" まだ展開されていない場合 --> 履歴データからコミットファイルを取得して展開
+			call append('.', map(copy(s:get_commit_file(sha)), '"  " . v:val'))
+		endif
+
+	else			" カーソルが展開したところ
+		if a:key ==# '-'
+			" カーソル位置のファイルの差分を表示
+			" カーソル位置から上に遡ってハッシュを取得
+			let sha = s:get_hash(line('.'))
+			if empty(sha) | return | endif
+
+			" 差分表示
+			if sha ==# '0000000'
+				call s:diff_side_by_side_head()
+			else
+				call s:diff_side_by_side(sha)
+			endif
+
+		else
+			" 折り畳み開始位置
+			let start = line('.')
+			while start > 1 && getline(start) =~# '^\s\+'
+				let start -= 1
+			endwhile
+			let start += 1
+
+			" 折り畳み終了位置
+			let end = start
+			while getline(end) =~# '^\s\+'
+				let end += 1
+			endwhile
+
+			" 折り畳み開始から終了までを削除
+			execute printf('silent %d,%ddelete _', start, end - 1)
+			normal! k
+		endif
+	endif
 endfunction
 
 "---------------------------------------------------------------
@@ -237,54 +441,30 @@ function! glog#log(...) abort
 		return
 	endif
 
-	" git log コマンド実行
-	let cmd = ['git', '-C', s:get('GitRoot'), 'log',
-				\ glog#git#is_bgjob() ? '--pretty=format:%h %ad %s' : '--pretty=format:"%h %ad %s"',
-				\ '--date=short']
-	let cmd += s:get('SpecifyFile') ? ['--', s:get('ExeFile')] : []
-	let result = glog#git#git_cmd(cmd)
-	if empty(result)
-		call s:errmsg("No commit history")
+	" WORKKINGの変更状況とコミット履歴を取得
+	let history = s:get_status() + s:get_git_history()
+	if empty(history)
+		call s:errmsg("No change. No commit history.")
 		return
 	endif
 
-	" 出力用ウィンドウ作成
-	call s:open_window('__glog__', 'botright 8 split', result)
+	" コミット履歴リストを作成(ハッシュ | yyyy-mm-dd | ログ)
+	let output = map(copy(history), 'v:val.sha . " | " . v:val.date . " | " . v:val.log')
+
+	" 出力用ウィンドウ作成&表示
+	call s:open_window('__glog__', 'botright 10 split', output)
 	setlocal filetype=glog
 
 	" キーマップを定義
 	nnoremap <buffer> <silent> q :close<CR>
+	nnoremap <buffer> <silent> d :<C-u>call <SID>show_diff()<CR>
 	nnoremap <buffer> <silent> p :<C-u>call <SID>show_revision()<CR>
-	nnoremap <buffer> <silent> <CR> :<C-u>call <SID>show_diff('diff')<CR>
-	nnoremap <buffer> <silent> d :<C-u>call <SID>show_diff_side_by_side()<CR>
-endfunction
+	nnoremap <buffer> <silent> <CR> :<C-u>call <SID>toggle_commit_details('-')<CR>
+	nnoremap <buffer> <silent> l :<C-u>call <SID>toggle_commit_details('-')<CR>
+	nnoremap <buffer> <silent> h :<C-u>call <SID>toggle_commit_details('+')<CR>
 
-"---------------------------------------------------------------
-" git status
-"---------------------------------------------------------------
-function! glog#status() abort
-	" glog初期化
-	if s:glog_init('') == 0
-		call s:errmsg("Out of git management")
-		return
-	endif
-
-	" gitコマンド実行
-	let result = glog#git#git_cmd(['git', '-C', s:get('GitRoot'), 'status', '-s', '-uno'])
-	if empty(result)
-		call s:errmsg("No changes")
-		return
-	endif
-
-	" 出力用ウィンドウ作成
-	call s:open_window('__glog__', 'botright 8 split', result)
-	setlocal filetype=gstatus
-
-	" キーマップを定義
-	nnoremap <buffer> <silent> q :close<CR>
-	nnoremap <buffer> <silent> p <nop>
-	nnoremap <buffer> <silent> <CR> :<C-u>call <SID>show_diff('status')<CR>
-	nnoremap <buffer> <silent> d :<C-u>call <SID>show_diff_side_by_side_head()<CR>
+	" git履歴をバッファデータとして持つ
+	let b:GitHistory = history
 endfunction
 
 let &cpoptions = s:save_cpo

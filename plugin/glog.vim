@@ -7,7 +7,6 @@ endif
 let g:loaded_glog = 1
 
 command! -bar -nargs=? Glog call glog#log(<f-args>)
-command! -bar -nargs=? Gstatus call glog#status(<f-args>)
 
 augroup GlogSyntax
 	autocmd!
