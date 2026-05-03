@@ -229,35 +229,46 @@ endfunction
 " コミット差分の表示
 "---------------------------------------------------------------
 function! s:show_diff() abort
-	let sha = s:get_hash(line('.'))
-	if empty(sha) | return | endif
+	" 行頭のハッシュ値を取得
+	let sha = matchstr(getline('.'), '^\v[0-9a-f]+')
 
-	" gitコマンドを実行
-	if sha ==# '0000000'
-		let lines = glog#git#git_cmd(['git', '-C', s:get('GitRoot'), 'diff'])
+	if !empty(sha)
+		" カーソルがハッシュのところだったら、Unified形式のdiff
+		if sha ==# '0000000'
+			let lines = glog#git#git_cmd(['git', '-C', s:get('GitRoot'), 'diff'])
+		else
+			let lines = glog#git#git_cmd(['git', '-C', s:get('GitRoot'), 'show', sha])
+		endif
+
+		" glog起動ウィンドウに移動
+		execute s:get('ExeWinnr') . 'wincmd w'
+
+		enew
+		setlocal noswapfile
+		setlocal filetype=gdiff
+		setlocal buftype=nofile
+
+		" 描画
+		silent! 0put = lines
+		silent! $delete _
+		normal! gg
+
+		" 変更禁止
+		setlocal nomodifiable
+
+		" バッファ名を設定
+		let name = sha ==# '0000000' ? 'WORKING' : sha[0:6]
+		execute 'file [' . name . '] '
+
 	else
-		let lines = glog#git#git_cmd(['git', '-C', s:get('GitRoot'), 'show', sha])
+		" カーソルが個々のファイルのところだったら、side by side形式のdiff
+		let sha = s:get_hash(line('.'))
+		if sha ==# '0000000'
+			call s:diff_side_by_side_head()
+		else
+			call s:diff_side_by_side(sha)
+		endif
 	endif
-
-	" glog起動ウィンドウに移動
-	execute s:get('ExeWinnr') . 'wincmd w'
-
-	enew
-	setlocal noswapfile
-	setlocal filetype=gdiff
-	setlocal buftype=nofile
-
-	" 描画
-	silent! 0put = lines
-	silent! $delete _
-	normal! gg
-
-	" 変更禁止
-	setlocal nomodifiable
-
-	" バッファ名を設定
-	let name = sha ==# '0000000' ? 'WORKING' : sha[0:6]
-	execute 'file [' . name . '] '
 endfunction
 
 "---------------------------------------------------------------
@@ -380,6 +391,35 @@ function! s:get_hash(lnum) abort
 endfunction
 
 "---------------------------------------------------------------
+" 折り畳み
+"---------------------------------------------------------------
+function! s:folding(lnum) abort
+	let sha = matchstr(a:lnum, '^\v[0-9a-f]+')
+
+	" 折り畳み開始位置
+	let start = a:lnum
+	if !empty(sha)
+		while start > 1 && getline(start) =~# '^\s\+'
+			let start -= 1
+		endwhile
+	endif
+	let start += 1
+
+	" 折り畳み終了位置
+	let end = start
+	while getline(end) =~# '^\s\+'
+		let end += 1
+	endwhile
+	let end -= 1
+
+	" 折り畳み開始から終了までを削除
+	setlocal modifiable
+	execute printf('silent %d,%ddelete _', start, end)
+	normal! k
+	setlocal nomodifiable
+endfunction
+
+"---------------------------------------------------------------
 " コミット情報の表示/非表示
 "---------------------------------------------------------------
 function! s:toggle_commit_details(key) abort
@@ -388,66 +428,22 @@ function! s:toggle_commit_details(key) abort
 	" 行頭のハッシュ値を取得
 	let sha = matchstr(line, '^\v[0-9a-f]+')
 
-	if !empty(sha)	" カーソルがハッシュのところ
+	if !empty(sha)
+		" カーソルがハッシュのところ
 		if getline(line('.') + 1) =~# '^\s\+'
-			" すでに展開されている場合 --> 折り畳み
-
-			" 折り畳み開始位置
-			let start = line('.') + 1
-
-			" 折り畳み終了位置
-			let end = start
-			while getline(end) =~# '^\s\+'
-				let end += 1
-			endwhile
-
-			" 折り畳み開始から終了までを削除
-			setlocal modifiable
-			execute printf('silent %d,%ddelete _', start, end - 1)
-			normal! k
-			setlocal nomodifiable
+			" すでに展開されている場合は折り畳み
+			let pos = s:folding(line('.')+1)
 
 		elseif a:key ==# '-'
-			" まだ展開されていない場合 --> 履歴データからコミットファイルを取得して展開
+			" まだ展開されていない場合は履歴データからコミットファイルを取得して展開
 			setlocal modifiable
 			call append('.', map(copy(s:get_commit_file(sha)), '"  " . v:val'))
 			setlocal nomodifiable
 		endif
 
-	else			" カーソルが展開したところ
-		if a:key ==# '-'
-			" カーソル位置のファイルの差分を表示
-			" カーソル位置から上に遡ってハッシュを取得
-			let sha = s:get_hash(line('.'))
-			if empty(sha) | return | endif
-
-			" 差分表示
-			if sha ==# '0000000'
-				call s:diff_side_by_side_head()
-			else
-				call s:diff_side_by_side(sha)
-			endif
-
-		else
-			" 折り畳み開始位置
-			let start = line('.')
-			while start > 1 && getline(start) =~# '^\s\+'
-				let start -= 1
-			endwhile
-			let start += 1
-
-			" 折り畳み終了位置
-			let end = start
-			while getline(end) =~# '^\s\+'
-				let end += 1
-			endwhile
-
-			" 折り畳み開始から終了までを削除
-			setlocal modifiable
-			execute printf('silent %d,%ddelete _', start, end - 1)
-			normal! k
-			setlocal nomodifiable
-		endif
+	else
+		" カーソルが展開したところだったら折り畳み
+		let pos = s:folding(line('.'))
 	endif
 endfunction
 
@@ -483,9 +479,8 @@ function! glog#log(...) abort
 
 	" キーマップを定義
 	nnoremap <buffer> <silent> q :close<CR>
-	nnoremap <buffer> <silent> d :<C-u>call <SID>show_diff()<CR>
 	nnoremap <buffer> <silent> p :<C-u>call <SID>show_revision()<CR>
-	nnoremap <buffer> <silent> <CR> :<C-u>call <SID>toggle_commit_details('-')<CR>
+	nnoremap <buffer> <silent> <CR> :<C-u>call <SID>show_diff()<CR>
 	nnoremap <buffer> <silent> l :<C-u>call <SID>toggle_commit_details('-')<CR>
 	nnoremap <buffer> <silent> h :<C-u>call <SID>toggle_commit_details('+')<CR>
 
