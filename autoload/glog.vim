@@ -52,7 +52,7 @@ function! s:open_window(win_name, edit, data) abort
 		setlocal modifiable
 		silent %d _
 	else
-		" ウィンドウが無い場合は作る 
+		" ウィンドウが無い場合は作る
 		execute 'silent! ' . a:edit . ' ' . a:win_name
 		setlocal buftype=nofile bufhidden=wipe noswapfile
 		setlocal nobuflisted
@@ -62,8 +62,8 @@ function! s:open_window(win_name, edit, data) abort
 	endif
 
 	silent! 0put = a:data
-	normal! gg
 	silent! $delete _
+	normal! gg
 
 	" 変更禁止
 	setlocal nomodifiable
@@ -89,6 +89,10 @@ function! s:open_sidebyside(file, data) abort
 
 	silent! 0put = a:data
 	normal! gg
+
+	" ステータス行をクリア
+	redraw
+	echo ""
 endfunction
 
 "---------------------------------------------------------------
