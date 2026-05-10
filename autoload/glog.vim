@@ -17,6 +17,13 @@ function! s:glog_init(speify_file) abort
 endfunction
 
 "---------------------------------------------------------------
+" 実行環境がcmd.exeか
+"---------------------------------------------------------------
+function! s:is_cmdexe()
+	return has('win32') && $COMSPEC =~? 'cmd\.exe' && !has('gui_running') ? 1 : 0
+endfunction
+
+"---------------------------------------------------------------
 " 情報取得
 "---------------------------------------------------------------
 function! s:get(key) abort
@@ -159,6 +166,7 @@ endfunction
 " 左右対比差分の表示（親コミット vs 現在のコミット）
 "---------------------------------------------------------------
 function! s:diff_side_by_side(sha) abort
+	let caret = s:is_cmdexe() ? '^^' : '^'
 	let filename = s:get_filepath_from_line()
 
 	" 実行元のウィンドウに移動
@@ -168,11 +176,11 @@ function! s:diff_side_by_side(sha) abort
 	tabnew
 
 	" ===== 左ペイン：親コミット（1つ前のリビジョン） =====
-	let result = glog#git#git_cmd(['git', '-C', s:get('GitRoot'), 'show', a:sha . '^:' . filename])
+	let result = glog#git#git_cmd(['git', '-C', s:get('GitRoot'), 'show', a:sha . caret.':' . filename])
 	call s:open_sidebyside(filename, result)
 	let left_bufnr = bufnr('%')
 	diffthis
-	execute 'file [' . a:sha[0:6] . '] ' . fnamemodify(filename, ':t')
+	execute 'file [' . a:sha[0:6] . '^] ' . fnamemodify(filename, ':t')
 
 	" 画面を左右に分割
 	bel vnew
@@ -182,7 +190,7 @@ function! s:diff_side_by_side(sha) abort
 	call s:open_sidebyside(filename, result)
 	let right_bufnr = bufnr('%')
 	diffthis
-	execute 'file [' . a:sha[0:6] . '^] ' . fnamemodify(filename, ':t')
+	execute 'file [' . a:sha[0:6] . '] ' . fnamemodify(filename, ':t')
 
 	call s:set_sidebyside_pair(left_bufnr, right_bufnr)
 
@@ -329,7 +337,7 @@ endfunction
 function! s:get_git_history(lognum) abort
 	" Gitコマンドの実行（ハッシュ、日付、ログ、ファイルステータスを取得）
 	let cmd = ['git', '-C', s:get('GitRoot'), 'log',
-				\ glog#git#is_bgjob() ? '--pretty=format:COMMIT:%h|%ad|%an|%s' : '--pretty=format:"COMMIT:%h|%ad|%s"',
+				\ glog#git#is_bgjob() ? '--pretty=format:COMMIT:%h|%ad|%an|%s' : '--pretty=format:"COMMIT:%h|%ad|%an|%s"',
 				\ glog#git#is_bgjob() ? '--date=format:%Y-%m-%d' : '--date=format:"%Y-%m-%d"',
 				\ '--name-status']
 	let cmd += s:get('SpecifyFile') ? ['--', s:get('ExeFile')] : []
