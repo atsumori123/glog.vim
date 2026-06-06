@@ -246,7 +246,7 @@ function! s:show_diff() abort
 
 	if !empty(sha)
 		" カーソルがハッシュのところだったら、Unified形式のdiff
-		if sha ==# '0000000'
+		if str2nr(sha) == 0
 			let lines = glog#git#git_cmd(['git', '-C', s:get('GitRoot'), 'diff'])
 		else
 			let lines = glog#git#git_cmd(['git', '-C', s:get('GitRoot'), 'show', sha])
@@ -269,13 +269,13 @@ function! s:show_diff() abort
 		setlocal nomodifiable
 
 		" バッファ名を設定
-		let name = sha ==# '0000000' ? 'WORKING' : sha[0:6]
+		let name = str2nr(sha) == 0 ? 'WORKING' : sha
 		execute 'file [' . name . '] '
 
 	else
 		" カーソルが個々のファイルのところだったら、side by side形式のdiff
 		let sha = s:get_hash(line('.'))
-		if sha ==# '0000000'
+		if str2nr(sha) == 0
 			call s:diff_side_by_side_head()
 		else
 			call s:diff_side_by_side(sha)
@@ -288,7 +288,7 @@ endfunction
 "---------------------------------------------------------------
 function! s:show_revision()
 	let sha = s:get_hash(line('.'))
-	if empty(sha) || sha ==# '0000000' | return | endif
+	if empty(sha) || str2nr(sha) == 0 | return | endif
 
 	let filename = s:get_filepath_from_line()
 	if empty(filename) | return | endif
@@ -323,11 +323,11 @@ function! s:get_status() abort
 	let lines = glog#git#git_cmd(['git', '-C', s:get('GitRoot'), 'status', '-s', '-uno'])
 	return empty(lines) ? [] :
 			\ [{
-			\ 'sha':  '0000000',
+			\ 'sha': '',
 			\ 'date': strftime('%Y-%m-%d'),
 			\ 'auther': '',
 			\ 'log':  'WORKING',
-			\ 'files': lines
+			\ 'files': map(copy(lines), { _, val -> substitute(val, '^\s*', '', '') })
 			\ }]
 endfunction
 
@@ -480,6 +480,11 @@ function! glog#log(...) abort
 	if empty(history)
 		call s:errmsg("No change. No commit history.")
 		return
+	endif
+
+	" WORKINGのコミットIDを設定（長さは短縮版コミットIDの長さによる）
+	if empty(history[0].sha)
+		let history[0].sha = repeat("0", len(history[1].sha))
 	endif
 
 	" コミット履歴リストを作成(ハッシュ | yyyy-mm-dd | ログ)
