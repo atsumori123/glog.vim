@@ -1,6 +1,9 @@
 let s:save_cpo = &cpoptions
 set cpoptions&vim
 
+let s:glog_name = "__glog__"
+let s:diff_buffers = []
+
 "---------------------------------------------------------------
 " glog初期化
 "---------------------------------------------------------------
@@ -12,6 +15,7 @@ function! s:glog_init(speify_file) abort
 	let s:glog['GitRoot'] = git_root[0]
 	let s:glog['ExeFile'] = glog#git#get_relative()[0] . expand('%:t')
 	let s:glog['ExeWinnr'] = winnr()
+	let s:glog['ExeBufnr'] = bufnr('%')
 	let s:glog['SpecifyFile'] = a:speify_file
 	return 1
 endfunction
@@ -46,29 +50,13 @@ function! s:get_filepath_from_line() abort
 endfunction
 
 "---------------------------------------------------------------
-" ウィンドウ作成
+" 描画
 "---------------------------------------------------------------
-function! s:open_window(win_name, edit, data) abort
-	let winnr = bufwinnr(a:win_name)
+function! s:draw(lines) abort
+	" 変更許可
+	setlocal modifiable
 
-	if winnr != -1
-		" 既にウィンドウがある場合は、ウィンドウに移って内容消去
-		if winnr() != winnr
-			execute winnr.'wincmd w'
-		endif
-		setlocal modifiable
-		silent %d _
-	else
-		" ウィンドウが無い場合は作る
-		execute 'silent! ' . a:edit . ' ' . a:win_name
-		setlocal buftype=nofile bufhidden=wipe noswapfile
-		setlocal nobuflisted
-		setlocal nowrap
-		setlocal bufhidden=delete
-		setlocal winfixheight winfixwidth
-	endif
-
-	silent! 0put = a:data
+	silent! 0put = a:lines
 	silent! $delete _
 	normal! gg
 
@@ -77,164 +65,172 @@ function! s:open_window(win_name, edit, data) abort
 endfunction
 
 "---------------------------------------------------------------
+" 重複しないバッファ名の取得
+"---------------------------------------------------------------
+function! s:get_unique_buffer_name(name) abort
+	let bname = a:name
+	for i in range(1, 1000)
+		if !bufexists(bname) | break | endif
+		let bname = printf('%s (%d)', a:name, i)
+	endfor
+	return bname
+endfunction
+
+"---------------------------------------------------------------
+" ウィンドウ作成
+"---------------------------------------------------------------
+function! s:open_glog(lines) abort
+	let glog_winnr = bufwinnr(s:glog_name)
+
+	if glog_winnr != -1
+		" 既にウィンドウがある場合は、ウィンドウに移って内容消去
+		if winnr() != glog_winnr
+			execute glog_winnr.'wincmd w'
+		endif
+		setlocal modifiable
+		silent %d _
+	else
+		" ウィンドウが無い場合は作る
+		execute 'silent! botright 10 split ' . s:glog_name
+		execute 'silent resize 10'
+		setlocal buftype=nofile bufhidden=wipe noswapfile
+		setlocal nobuflisted
+		setlocal nowrap
+		setlocal bufhidden=delete
+		setlocal winfixheight winfixwidth
+		setlocal filetype=glog
+	endif
+
+	" 表示
+	call s:draw(a:lines)
+
+	" Glogクローズ時に発火
+	augroup Glog
+		autocmd! * <buffer>
+		autocmd BufWinLeave <buffer> call <SID>diff_off(2)
+	augroup END
+endfunction
+
+"---------------------------------------------------------------
 " 左右diff用ウィンドウ作成
 "---------------------------------------------------------------
-function! s:open_sidebyside(file, data) abort
+function! s:open_sidebyside(file, lines) abort
 	execute 'enew'
 	setlocal noswapfile
 	execute 'setlocal filetype=' . fnamemodify(a:file, ':e')
-	setlocal buftype=nofile bufhidden=wipe
-
-	" 対となるバッファ番号の初期化
-	let b:glog_sidebyside_peer = -1
-
-	" diffバッファ自動クローズを登録
-	call s:setup_sidebyside_autocmd()
+	setlocal buftype=nofile
+	call s:draw(a:lines)
 
 	" ショートカットキー
-	nnoremap <buffer> <silent> q :close<CR>
-
-	silent! 0put = a:data
-	normal! gg
+	nnoremap <buffer> <silent> q :call <SID>diff_off(1)<CR>
 
 	" ステータス行をクリア
-	redraw
-	echo ""
-endfunction
+	redraw | echo ""
 
-"---------------------------------------------------------------
-" diffバッファクローズ用autocmd
-"---------------------------------------------------------------
-function! s:setup_sidebyside_autocmd() abort
-	let grp = 'glog_sidebyside_' . bufnr('%')
-	execute 'augroup ' . grp
-	execute 'autocmd!'
-	execute 'autocmd BufWipeout <buffer> call <SID>on_sidebyside_buffer_wipeout()'
-	execute 'augroup END'
-endfunction
-
-"---------------------------------------------------------------
-" diff用バッファを閉じたときのコールバック関数
-"---------------------------------------------------------------
-function! s:on_sidebyside_buffer_wipeout() abort
-	" diffモード中だったら終了させておく
-	if &diff | diffoff! | endif
-
-	" 再帰的に閉じる処理が動作するのを防ぐ
-	if exists('s:sidebyside_wipe') && s:sidebyside_wipe
-		return
-	endif
-
-	" もう一方のバッファ番号を取得
-	let peer = getbufvar(bufnr('%'), 'glog_sidebyside_peer', -1)
-	if peer == -1 || !bufexists(peer)
-		return
-	endif
-
-	" 再帰的に閉じる処理が動作しないようにフラグをオン
-	let s:sidebyside_wipe = 1
-
-	" もう一方のバッファを閉じる
-	execute 'bwipeout! ' . peer
-
-	unlet! s:sidebyside_wipe
-
-	call s:close_diff()
-endfunction
-
-"---------------------------------------------------------------
-" 互いのdiffバッファ番号をバッファ情報として記憶
-"---------------------------------------------------------------
-function! s:set_sidebyside_pair(left, right) abort
-	call setbufvar(a:left, 'glog_sidebyside_peer', a:right)
-	call setbufvar(a:right, 'glog_sidebyside_peer', a:left)
-endfunction
-
-"---------------------------------------------------------------
-" 差分表示を閉じる
-"---------------------------------------------------------------
-function! s:close_diff() abort
-	let winnr = bufwinnr('__glog__')
-	if winnr != -1
-		if winnr() != winnr
-			execute winnr.'wincmd w'
-		endif
-	endif
+	return bufnr('%')
 endfunction
 
 "---------------------------------------------------------------
 " 左右対比差分の表示（親コミット vs 現在のコミット）
 "---------------------------------------------------------------
-function! s:diff_side_by_side(sha) abort
+function! s:diff_side_by_side(filename, sha) abort
 	let caret = s:is_cmdexe() ? '^^' : '^'
-	let filename = s:get_filepath_from_line()
 
 	" 実行元のウィンドウに移動
-	execute s:get('ExeWinnr') . 'wincmd w'
+	execute 'wincmd w'
 
-	" 新しいタブで左右対比を開く
-	tabnew
-
-	" ===== 左ペイン：親コミット（1つ前のリビジョン） =====
-	let result = glog#git#git_cmd(['git', '-C', s:get('GitRoot'), 'show', a:sha . caret.':' . filename])
-	call s:open_sidebyside(filename, result)
-	let left_bufnr = bufnr('%')
+	" 左ペイン：親コミット（1つ前のリビジョン）
+	let result = glog#git#git_cmd(['git', '-C', s:get('GitRoot'), 'show', a:sha . caret.':' . a:filename])
+	let bufnr = s:open_sidebyside(a:filename, result)
+	call add(s:diff_buffers, bufnr)
+	execute 'file [' . a:sha . '^] ' . fnamemodify(a:filename, ':t')
 	diffthis
-	execute 'file [' . a:sha[0:6] . '^] ' . fnamemodify(filename, ':t')
 
 	" 画面を左右に分割
-	bel vnew
+	bel vsplit
 
-	" ===== 右ペイン：現在のコミット =====
-	let result = glog#git#git_cmd(['git', '-C', s:get('GitRoot'), 'show', a:sha . ':' . filename])
-	call s:open_sidebyside(filename, result)
-	let right_bufnr = bufnr('%')
+	" 右ペイン：現在のコミット
+	let result = glog#git#git_cmd(['git', '-C', s:get('GitRoot'), 'show', a:sha . ':' . a:filename])
+	let bufnr = s:open_sidebyside(a:filename, result)
+	call add(s:diff_buffers, bufnr)
+	execute 'file [' . a:sha . '] ' . fnamemodify(a:filename, ':t')
 	diffthis
-	execute 'file [' . a:sha[0:6] . '] ' . fnamemodify(filename, ':t')
-
-	call s:set_sidebyside_pair(left_bufnr, right_bufnr)
 
 	" フォーカスを左ペインに戻す
-	wincmd h
+	execute 'wincmd h'
 endfunction
 
 "---------------------------------------------------------------
 " 左右対比差分の表示（HEAD vs ワーキングディレクトリ）
 "---------------------------------------------------------------
-function! s:diff_side_by_side_head() abort
-	let filename = s:get_filepath_from_line()
-	if empty(filename) || !filereadable(s:get('GitRoot') . (has('unix') ? '/' : '\') . filename)
+function! s:diff_side_by_side_head(filename) abort
+	" フルパスのファイル名
+	let filepath = s:get('GitRoot') . (has('unix') ? '/' : '\') . a:filename
+
+	" 選択項目のファイルが存在するかチェック
+	if empty(a:filename) || !filereadable(filepath)
 		call s:errmsg("No file selected")
 		return
 	endif
 
-	" 実行元のウィンドウに移動
-	execute s:get('ExeWinnr') . 'wincmd w'
+	" diff表示するウィンドウに移動
+	execute 'wincmd w'
 
-	" 新しいタブで左右対比を開く
-	tabnew
-
-	" ===== 左ペイン：HEAD のバージョン =====
-	let result = glog#git#git_cmd(['git', '-C', s:get('GitRoot'), 'show', 'HEAD:' . filename])
-	call s:open_sidebyside(filename, result)
-	let left_bufnr = bufnr('%')
+	" 左ペイン：HEAD のバージョン
+	let result = glog#git#git_cmd(['git', '-C', s:get('GitRoot'), 'show', 'HEAD:' . a:filename])
+	let bufnr = s:open_sidebyside(a:filename, result)
+	call add(s:diff_buffers, bufnr)
+	execute 'file [HEAD] ' . fnamemodify(a:filename, ':t')
 	diffthis
-	execute 'file [HEAD] ' . fnamemodify(filename, ':t')
 
 	" 画面を左右に分割
-	bel vnew
+	bel vsplit
 
-	" ===== 右ペイン：ワーキングディレクトリのバージョン =====
-	let working_content = readfile(s:get('GitRoot') . '/' . filename)
-	call s:open_sidebyside(filename, working_content)
-	let right_bufnr = bufnr('%')
+	" 右ペイン：ワーキングディレクトリのバージョン
+	if bufwinnr('^' . filepath . '$') != -1
+		execute 'b' . bufnr(filepath)
+	else
+		execute "edit " . filepath
+	endif
 	diffthis
-	execute 'file [WORKING] ' . fnamemodify(filename, ':t')
-
-	call s:set_sidebyside_pair(left_bufnr, right_bufnr)
 
 	" フォーカスを左ペインに戻す
-	wincmd h
+	execute 'wincmd h'
+endfunction
+
+"---------------------------------------------------------------
+" diff表示の終了
+"---------------------------------------------------------------
+function! s:diff_off(close) abort
+	" diffモード終了
+	windo diffoff
+
+	" diff以外のバッファにスイッチさせる
+	let glog_winnr = bufwinnr(s:glog_name)
+	let wins = map(getwininfo(), { _, v -> v.winnr })
+	call filter(wins, 'v:val != glog_winnr')
+	execute (empty(wins) ? glog_winnr : wins[0]) . 'wincmd w'
+
+	if a:close == 1
+		execute 'wincmd c'
+	endif
+
+	" Glog起動時のバッファにスイッチ
+	if buflisted(s:get('ExeBufnr'))
+		execute 'b' . s:get('ExeBufnr')
+	else
+		enew
+	endif
+
+	" diffバッファを削除
+	let del_buffers = join(filter(copy(s:diff_buffers), 'v:val != -1 && buflisted(v:val)'))
+	if !empty(del_buffers) | execute 'bw! ' . del_buffers | endif
+	let s:diff_buffers = []
+
+	if a:close != 2
+		" Glogにフォーカスを戻す
+		execute bufwinnr(s:glog_name) . 'wincmd w' 
+	endif
 endfunction
 
 "---------------------------------------------------------------
@@ -245,7 +241,7 @@ function! s:show_diff() abort
 	let sha = matchstr(getline('.'), '^\v[0-9a-f]+')
 
 	if !empty(sha)
-		" カーソルがハッシュのところだったら、Unified形式のdiff
+		" カーソルがハッシュ値のところだったら、Unified形式のdiff
 		if str2nr(sha) == 0
 			let lines = glog#git#git_cmd(['git', '-C', s:get('GitRoot'), 'diff'])
 		else
@@ -255,30 +251,40 @@ function! s:show_diff() abort
 		" glog起動ウィンドウに移動
 		execute s:get('ExeWinnr') . 'wincmd w'
 
+		" 表示
 		enew
 		setlocal noswapfile
 		setlocal filetype=gdiff
 		setlocal buftype=nofile
-
-		" 描画
-		silent! 0put = lines
-		silent! $delete _
-		normal! gg
-
-		" 変更禁止
-		setlocal nomodifiable
-
-		" バッファ名を設定
-		let name = str2nr(sha) == 0 ? 'WORKING' : sha
-		execute 'file [' . name . '] '
+		call s:draw(lines)
+		execute 'file ' . s:get_unique_buffer_name('[' . (str2nr(sha) == 0 ? 'WORKING' : sha) . ']')
 
 	else
+		" quickfixウィンドウのクローズ
+		cclose
+
+		" diffモードを終了
+		call s:diff_off(0)
+
+		" Glog以外のウィンドウIDの一覧を取得
+		let glog_winid = bufwinid(s:glog_name)
+		let wins = map(getwininfo(), { _, v -> v.winid })
+		call filter(wins, 'v:val != glog_winid')
+
+		" 複数にウィンドウが分割されている場合は、1つを残して閉じる
+		if len(wins) > 1
+			for i in range(len(wins) - 1, 1, -1)
+				call win_execute(wins[i], 'close')
+			endfor
+		endif
+
 		" カーソルが個々のファイルのところだったら、side by side形式のdiff
+		let filename = s:get_filepath_from_line()
 		let sha = s:get_hash(line('.'))
 		if str2nr(sha) == 0
-			call s:diff_side_by_side_head()
+			call s:diff_side_by_side_head(filename)
 		else
-			call s:diff_side_by_side(sha)
+			call s:diff_side_by_side(filename, sha)
 		endif
 	endif
 endfunction
@@ -287,9 +293,11 @@ endfunction
 " 指定リビジョンを表示
 "---------------------------------------------------------------
 function! s:show_revision()
+	" ハッシュ値を取得
 	let sha = s:get_hash(line('.'))
 	if empty(sha) || str2nr(sha) == 0 | return | endif
 
+	" 選択項目のファイル名を取得
 	let filename = s:get_filepath_from_line()
 	if empty(filename) | return | endif
 
@@ -299,21 +307,13 @@ function! s:show_revision()
 	" glog起動ウィンドウに移動
 	execute s:get('ExeWinnr') . 'wincmd w'
 
+	" 表示
 	enew
 	setlocal noswapfile
 	setlocal buftype=nofile
 	execute 'setlocal filetype=' . fnamemodify(filename, ':e')
-
-	" 描画
-	silent! 0put = lines
-	silent! $delete _
-	normal! gg
-
-	" 変更禁止
-	setlocal nomodifiable
-
-	" バッファ名を設定
-	execute 'file [' . sha[0:6] . '] ' . fnamemodify(filename, ':t')
+	call s:draw(lines)
+	execute 'file ' . s:get_unique_buffer_name('[' . sha . '] ' . fnamemodify(filename, ':t'))
 endfunction
 
 "---------------------------------------------------------------
@@ -491,11 +491,10 @@ function! glog#log(...) abort
 	let output = map(copy(history), 'v:val.sha . " | " . v:val.date . " | " . v:val.log . " " . v:val.auther')
 
 	" 出力用ウィンドウ作成&表示
-	call s:open_window('__glog__', 'botright 10 split', output)
-	setlocal filetype=glog
+	call s:open_glog(output)
 
 	" キーマップを定義
-	nnoremap <buffer> <silent> q :close<CR>
+	nnoremap <buffer> <silent> q :bd<CR>
 	nnoremap <buffer> <silent> p :<C-u>call <SID>show_revision()<CR>
 	nnoremap <buffer> <silent> <CR> :<C-u>call <SID>show_diff()<CR>
 	nnoremap <buffer> <silent> l :<C-u>call <SID>toggle_commit_details('-')<CR>
