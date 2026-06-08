@@ -46,7 +46,15 @@ endfunction
 " ファイル名の抽出
 "---------------------------------------------------------------
 function! s:get_filepath_from_line() abort
-	return matchstr(getline('.'), '\v\S+/\S+')
+	return split(trim(getline('.')))[1]
+endfunction
+
+"---------------------------------------------------------------
+" ファイルタイプの取得
+"---------------------------------------------------------------
+function! s:get_filetype(filepath)
+	let ft = fnamemodify(a:filepath, ':e')
+	return get({'h':'c', 'py':'python'}, ft, ft)
 endfunction
 
 "---------------------------------------------------------------
@@ -70,7 +78,7 @@ endfunction
 function! s:get_unique_buffer_name(name) abort
 	let bname = a:name
 	for i in range(1, 1000)
-		if !bufexists(bname) | break | endif
+		if !buflisted(bname) | break | endif
 		let bname = printf('%s (%d)', a:name, i)
 	endfor
 	return bname
@@ -117,7 +125,7 @@ endfunction
 function! s:open_sidebyside(file, lines) abort
 	execute 'enew'
 	setlocal noswapfile
-	execute 'setlocal filetype=' . fnamemodify(a:file, ':e')
+	execute 'setlocal filetype=' . s:get_filetype(a:file)
 	setlocal buftype=nofile
 	call s:draw(a:lines)
 
@@ -311,7 +319,7 @@ function! s:show_revision()
 	enew
 	setlocal noswapfile
 	setlocal buftype=nofile
-	execute 'setlocal filetype=' . fnamemodify(filename, ':e')
+	execute 'setlocal filetype=' . s:get_filetype(filename)
 	call s:draw(lines)
 	execute 'file ' . s:get_unique_buffer_name('[' . sha . '] ' . fnamemodify(filename, ':t'))
 endfunction
