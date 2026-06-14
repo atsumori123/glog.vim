@@ -250,7 +250,7 @@ function! s:show_diff() abort
 
 	if !empty(sha)
 		" カーソルがハッシュ値のところだったら、Unified形式のdiff
-		if str2nr(sha) == 0
+		if str2nr(sha, 16) == 0
 			let lines = glog#git#git_cmd(['git', '-C', s:get('GitRoot'), 'diff'])
 		else
 			let lines = glog#git#git_cmd(['git', '-C', s:get('GitRoot'), 'show', sha])
@@ -265,7 +265,7 @@ function! s:show_diff() abort
 		setlocal filetype=gdiff
 		setlocal buftype=nofile
 		call s:draw(lines)
-		execute 'file ' . s:get_unique_buffer_name('[' . (str2nr(sha) == 0 ? 'WORKING' : sha) . ']')
+		execute 'file ' . s:get_unique_buffer_name('[' . (str2nr(sha, 16) == 0 ? 'WORKING' : sha) . ']')
 
 	else
 		" quickfixウィンドウのクローズ
@@ -289,7 +289,7 @@ function! s:show_diff() abort
 		" カーソルが個々のファイルのところだったら、side by side形式のdiff
 		let filename = s:get_filepath_from_line()
 		let sha = s:get_hash(line('.'))
-		if str2nr(sha) == 0
+		if str2nr(sha, 16) == 0
 			call s:diff_side_by_side_head(filename)
 		else
 			call s:diff_side_by_side(filename, sha)
@@ -303,7 +303,7 @@ endfunction
 function! s:show_revision()
 	" ハッシュ値を取得
 	let sha = s:get_hash(line('.'))
-	if empty(sha) || str2nr(sha) == 0 | return | endif
+	if empty(sha) || str2nr(sha, 16) == 0 | return | endif
 
 	" 選択項目のファイル名を取得
 	let filename = s:get_filepath_from_line()
