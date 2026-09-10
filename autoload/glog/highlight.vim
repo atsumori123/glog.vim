@@ -72,7 +72,7 @@ function! glog#highlight#line_toggle() abort
 	endif
 
 	redraw!
-	call sign#start()
+	call gsign#start()
 endfunction
 
 call glog#highlight#setup()

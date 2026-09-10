@@ -42,19 +42,19 @@ function! s:set_buflocal_autocmds(bufnr) abort
 	augroup signify
 		execute printf('autocmd! * <buffer=%d>', a:bufnr)
 
-"		execute printf('autocmd BufEnter     <buffer=%d> call sign#start()', a:bufnr)
-"		execute printf('autocmd WinEnter     <buffer=%d> call sign#start()', a:bufnr)
-		execute printf('autocmd BufWritePost <buffer=%d> call sign#start()', a:bufnr)
+"		execute printf('autocmd BufEnter     <buffer=%d> call gsign#start()', a:bufnr)
+"		execute printf('autocmd WinEnter     <buffer=%d> call gsign#start()', a:bufnr)
+		execute printf('autocmd BufWritePost <buffer=%d> call gsign#start()', a:bufnr)
 
-		execute printf('autocmd CursorHold   <buffer=%d> call sign#start()', a:bufnr)
+		execute printf('autocmd CursorHold   <buffer=%d> call gsign#start()', a:bufnr)
 "		execute printf('autocmd CursorHoldI  <buffer=%d> call sign#start()', a:bufnr)
 "		execute printf('autocmd FocusGained  <buffer=%d> SignifyRefresh', a:bufnr)
 "		execute printf('autocmd CmdwinEnter <buffer=%d> let g:signify_cmdwin_active = 1', a:bufnr)
 "		execute printf('autocmd CmdwinLeave <buffer=%d> let g:signify_cmdwin_active = 0', a:bufnr)
-"		execute printf('autocmd ShellCmdPost <buffer=%d> call sign#start()', a:bufnr)
+"		execute printf('autocmd ShellCmdPost <buffer=%d> call gsign#start()', a:bufnr)
 
 		" if exists('##VimResume')
-		" 	execute printf('autocmd VimResume <buffer=%d> call sign#start()', a:bufnr)
+		" 	execute printf('autocmd VimResume <buffer=%d> call gsign#start()', a:bufnr)
 		" endif
 	augroup END
 endfunction
@@ -262,34 +262,6 @@ function! s:process_diff(sy, diff) abort
 endfunction
 
 "-------------------------------------------------------
-" s:wrap_cmd
-"-------------------------------------------------------
-function! s:wrap_cmd(bufnr, cmd) abort
-	if has('win32')
-		if has('nvim')
-			let cmd = &shell =~ '\v%(cmd|powershell|pwsh)' ? a:cmd : ['sh', '-c', a:cmd]
-		else
-			" ex: bash.exe -c (コマンド)
-			" -c は「後ろに続く文字列をコマンドとして実行する」という意味
-			if &shell =~ 'cmd'
-				let cmd = join([&shell, &shellcmdflag, '(', a:cmd, ')'])
-			elseif empty(&shellxquote)
-				let cmd = join([&shell, &shellcmdflag, &shellquote, a:cmd, &shellquote])
-			else
-				let cmd = join([&shell, &shellcmdflag, &shellxquote, a:cmd, &shellxquote])
-			endif
-		endif
-	else
-		let cmd = ['sh', '-c', a:cmd]
-	endif
-	let options = {
-				\ 'stdoutbuf': [''],
-				\ 'bufnr': a:bufnr,
-				\ }
-	return [cmd, options]
-endfunction
-
-"-------------------------------------------------------
 " s:write_buffer
 "-------------------------------------------------------
 function! s:write_buffer(bufnr, file)
@@ -324,10 +296,26 @@ function! s:write_buffer(bufnr, file)
 endfunction
 
 "-------------------------------------------------------
+" s:get_job_gen
+"-------------------------------------------------------
+function! s:get_job_gen() abort
+	" 次のジョブ世代番号(前回の世代+1)を取得
+	return get(s:, 'job_gen', 0) + 1
+endfunction
+
+"-------------------------------------------------------
 " s:initialize_job
 "-------------------------------------------------------
 function! s:initialize_job(bufnr) abort
-	return s:wrap_cmd(a:bufnr, 'git diff --no-color --no-ext-diff -U0 -- ' . getbufvar(a:bufnr, 'sy').info.file)
+	let cmd = 'git diff --no-color --no-ext-diff -U0 -- ' . getbufvar(a:bufnr, 'sy').info.file
+	let opts = {
+				\ 'job_gen'   : s:get_job_gen(),
+				\ 'stdoutbuf' : [''],
+				\ 'bufnr'     : a:bufnr,
+				\ 'difftool'  : 'git'
+				\ }
+
+	return [cmd, opts]
 endfunction
 
 "-------------------------------------------------------
@@ -343,13 +331,18 @@ function! s:initialize_buffer_job(bufnr) abort
 	let base_cmd = 'git show HEAD:./' . getbufvar(a:bufnr, 'sy').info.file . '>' . fnameescape(basefile) . ' && '
 
 	" コマンド実行形式にする
-	let diff_cmd = base_cmd . 'diff -U0 ' . fnameescape(basefile) . ' ' . fnameescape(bufferfile)
-	let [cmd, options] = s:wrap_cmd(a:bufnr, diff_cmd)
+	let cmd = base_cmd . 'diff -U0 ' . fnameescape(basefile) . ' ' . fnameescape(bufferfile)
 
-	" 一時ファイルを記憶
-	let options.tempfiles = [basefile, bufferfile]
+	" 一時ファイルも記憶
+	let opts = {
+				\ 'job_gen'   : s:get_job_gen(),
+				\ 'stdoutbuf' : [''],
+				\ 'bufnr'     : a:bufnr,
+				\ 'difftool'  : 'diff',
+				\ 'tempfiles' : [basefile, bufferfile]
+				\ }
 
-	return [cmd, options]
+	return [cmd, opts]
 endfunction
 
 "-------------------------------------------------------
@@ -357,37 +350,88 @@ endfunction
 "-------------------------------------------------------
 function! s:get_diff(bufnr) abort
 	" 前回のジョブが起動中の場合は停止
-	call glog#repo#stop_job(getbufvar(a:bufnr, 'sy_job_id'))
+	call glog#job#stop_job(getbufvar(a:bufnr, 'sy_job'))
 
 	if getbufvar(a:bufnr, '&modified')
-		let [cmd, options] = s:initialize_buffer_job(a:bufnr)
-		let options.difftool = 'diff'
+		let [cmd, opts] = s:initialize_buffer_job(a:bufnr)
 	else
-		let [cmd, options] = s:initialize_job(a:bufnr)
-		let options.difftool = 'git'
+		let [cmd, opts] = s:initialize_job(a:bufnr)
 	endif
 
-	" 今回のジョブ世代番号(前回の世代+1)を取得&保存
-	let s:job_gen = get(s:, 'job_gen', 0) + 1
-	let options.job_gen = s:job_gen
-	call setbufvar(a:bufnr, 'sy_job_gen', s:job_gen)
+	" 今回のジョブ世代番号(前回の世代+1)を保存
+	call setbufvar(a:bufnr, 'sy_job_gen', opts.job_gen)
 
 	" 差分取得のジョブを開始
-	let job_id = glog#repo#start_job(cmd, options, getbufvar(a:bufnr, 'sy').info.dir)
+	let job = glog#job#start_job(
+				\ cmd,
+				\ opts,
+				\ getbufvar(a:bufnr, 'sy').info.dir,
+				\ 'gsign#job_stdout',
+				\ 'gsign#job_exit'
+				\ )
 
 	" 今回の新しいジョブIDを保存
-	call setbufvar(a:bufnr, 'sy_job_id', job_id)
+	call setbufvar(a:bufnr, 'sy_job', job)
 endfunction
 
+"-------------------------------------------------------
+" gsign#job_stdout
+"-------------------------------------------------------
+function! gsign#job_stdout(_job_id, data) dict abort
+	" a:dataはジョブが標準出力へ出した1行分の文字列
+	" dict:この関数が辞書コンテキストで呼ばれることを示す。get_diff()で本館数登録時にopts辞書を渡して登録している
+	" そのため、selfはopts辞書を参照する
+	" 'stdoutbuf' ; [''] " で初期化されており、受け取った1行をstdoutbufに追加する
+	let self.stdoutbuf += [a:data]
+endfunction
 
 "-------------------------------------------------------
-" sign#start
+" gsign#job_exit
 "-------------------------------------------------------
-function! sign#start(...) abort
+function! gsign#job_exit(job, exitval) dict abort
+	" 一時ファイルの削除
+	if has_key(self, 'tempfiles')
+		for f in self.tempfiles
+			call delete(f)
+		endfor
+	endif
+
+	" バッファにb:syが無い(=Signifyが初期化されていないバッファ)は対象外
+	let sy = getbufvar(self.bufnr, 'sy')
+	if empty(sy)
+		call s:warning('No b:sy found for ' . bufname(self.bufnr))
+		return
+	endif
+
+	" 差分文字列の出力がバッファの文字コード違う場合は変換
+	let fenc = getbufvar(self.bufnr, '&fenc')
+	let enc  = getbufvar(self.bufnr, '&enc')
+	if (fenc != enc) && has('iconv')
+		call map(self.stdoutbuf, printf('iconv(v:val, "%s", "%s")', fenc, enc))
+	endif
+
+	" 差分の有無をチェック(diffの場合は0が「差分なし」、1が「差分あり」を意味する)
+	let found_diff = self.difftool == 'diff' ? a:exitval <= 1 : a:exitval == 0
+	if found_diff
+		" 差分行にsignを付けるか計算して配置
+		call gsign#set_signs(sy, self.stdoutbuf)
+	endif
+
+	" 「今のジョブだけが最新のジョブである場合だけ、ジョブIDをリセットする」
+	" もし古い非同期ジョブの結果が後から戻ってきても、新しいジョブの状態を壊さないようにする。
+	" これは、複数回 diff を走らせたときに起きる「古い結果が新しい結果を上書きする」問題を防ぐための安全策。
+	if get(self, 'job_gen', -1) == getbufvar(self.bufnr, 'sy_job_gen', -2)
+		call setbufvar(self.bufnr, 'sy_job', 0)
+	endif
+endfunction
+"-------------------------------------------------------
+" gsign#start
+"-------------------------------------------------------
+function! gsign#start(...) abort
 	let bufnr = a:0 ? a:1 : bufnr('')
 	let path = resolve(fnamemodify(bufname(bufnr), ':p'))
 
-	if g:signify_locked | return | endif
+	if g:gsign_locked | return | endif
 
 	if has('vim_starting') | return | endif
 
@@ -401,7 +445,6 @@ function! sign#start(...) abort
 					\ 'signid':		0x100,
 					\ 'info':		{
 					\    'dir':  fnamemodify(path, ':p:h'),
-					\    'path': s:escape(path),
 					\    'file': s:escape(fnamemodify(path, ':t'))
 					\ }}
 		call setbufvar(bufnr, 'sy', new_sy)
@@ -410,8 +453,8 @@ function! sign#start(...) abort
 	else
 		" 実行中のジョブが存在するか確認
 		" nvimのjobstart()は数値IDを返すが、vimのjob_start()はジョブオフジェクトを返すため以下の判定にする必要がある
-		let job_id = getbufvar(sy.buffer, 'sy_job_id', 0)
-		if type(job_id) != type(0) || job_id > 0
+		let job = getbufvar(sy.buffer, 'sy_job', 0)
+		if type(job) != type(0) || job > 0
 		else
 			call s:get_diff(sy.buffer)
 		endif
@@ -419,9 +462,9 @@ function! sign#start(...) abort
 endfunction
 
 "-------------------------------------------------------
-" sign#stop
+" gsign#stop
 "-------------------------------------------------------
-function! sign#stop(...) abort
+function! gsign#stop(...) abort
 	let bufnr = bufnr('')
 	if empty(getbufvar(a:0 ? a:1 : bufnr, 'sy')) | return | endif
 	call s:remove_all_signs(bufnr)
@@ -430,16 +473,16 @@ function! sign#stop(...) abort
 endfunction
 
 "-------------------------------------------------------
-" sign#toggle
+" gsign#toggle
 "-------------------------------------------------------
-function! sign#toggle() abort
-	call call(empty(getbufvar(bufnr(''), 'sy')) ? 'sign#start' : 'sign#stop', [])
+function! gsign#toggle() abort
+	call call(empty(getbufvar(bufnr(''), 'sy')) ? 'gsign#start' : 'gsign#stop', [])
 endfunction
 
 "-------------------------------------------------------
-" sign#jump_hunk
+" gsign#jump_hunk
 "-------------------------------------------------------
-function! sign#jump_hunk(count, direction)
+function! gsign#jump_hunk(count, direction)
 	let sy = getbufvar(bufnr(''), 'sy')
 	if empty(sy) || empty(sy.hunks) | return | endif
 
@@ -458,9 +501,9 @@ function! sign#jump_hunk(count, direction)
 endfunction
 
 "-------------------------------------------------------
-" sign#set_signs
+" gsign#set_signs
 "-------------------------------------------------------
-function! sign#set_signs(sy, diff) abort
+function! gsign#set_signs(sy, diff) abort
 	" 差分が無い場合は全てのサインをクリア
 	if empty(a:diff)
 		call s:warning('No changes found.', 'git')

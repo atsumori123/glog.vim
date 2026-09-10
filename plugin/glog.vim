@@ -2,20 +2,20 @@ if exists('g:loaded_glog')
 	finish
 endif
 let g:loaded_glog = 1
-let g:signify_locked = 0
+let g:gsign_locked = 0
 
 let s:save_cpo = &cpoptions
 set cpoptions&vim
 
 command! -bar -nargs=* Glog call glog#log(<f-args>)
-command! -nargs=0 -bar GsignToggle          call sign#toggle()
+command! -nargs=0 -bar GsignToggle          call gsign#toggle()
 command! -nargs=0 -bar GsignToggleHighlight call glog#highlight#line_toggle()
 
 augroup GlogSyntax
 	autocmd!
-	autocmd FileType gdiff call glog#syntax#diff()
-	autocmd FileType glog call glog#syntax#log()
-	autocmd FileType gstatus call glog#syntax#status()
+	autocmd FileType gdiff		call glog#syntax#diff()
+	autocmd FileType glog		call glog#syntax#log()
+	autocmd FileType gstatus	call glog#syntax#status()
 augroup END
 
 " hunk jumping
@@ -24,7 +24,7 @@ nnoremap <silent> <expr> <plug>(signify-next-hunk) &diff
 			\ : ":\<c-u>call sign#jump_hunk(v:count1, 1)\<cr>"
 nnoremap <silent> <expr> <plug>(signify-prev-hunk) &diff
 			\ ? '[c'
-			\ : ":\<c-u>call sign#jump_hunk(v:count1, -1)\<cr>"
+			\ : ":\<c-u>call gsign#jump_hunk(v:count1, -1)\<cr>"
 
 if empty(maparg(']c', 'n')) && !hasmapto('<plug>(signify-next-hunk)', 'n')
 	nmap ]c <plug>(signify-next-hunk)
@@ -44,12 +44,12 @@ if has('gui_running') && has('win32') && argc()
 	autocmd GUIEnter * redraw
 endif
 
-autocmd QuickFixCmdPre  *vimgrep* let g:signify_locked = 1
-autocmd QuickFixCmdPost *vimgrep* let g:signify_locked = 0
+autocmd QuickFixCmdPre  *vimgrep* let g:gsign_locked = 1
+autocmd QuickFixCmdPost *vimgrep* let g:gsign_locked = 0
 
 autocmd BufNewFile,BufRead * nested
 			\ if !get(g:, 'signify_disable_by_default') |
-			\   call sign#start(bufnr('')) |
+			\   call gsign#start(bufnr('')) |
 			\ endif
 
 let &cpoptions = s:save_cpo
