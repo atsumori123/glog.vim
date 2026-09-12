@@ -100,5 +100,40 @@ function! glog#syntax#status()
 	highlight GitWorking ctermfg=209 guifg=#F08650 cterm=none gui=none
 endfunction
 
+"-------------------------------------------------------
+" glog#syntax#gsing_setup
+"-------------------------------------------------------
+function! glog#syntax#gsing_setup() abort
+	highlight GsignSignAdd     ctermfg=255 guifg=#00A46e cterm=bold gui=bold
+	highlight GsignSignDelete  ctermfg=203 guifg=#e27878 cterm=bold gui=bold
+	highlight GsignSignChange  ctermfg=159 guifg=#0078d4 cterm=bold gui=bold
+endfunction
+
+"-------------------------------------------------------
+" glog#syntax#gsign_line_enable
+"-------------------------------------------------------
+function! glog#syntax#gsign_line_enable() abort
+	execute 'sign define GsignAdd             text=| texthl=GsignSignAdd    linehl=DiffAdd'
+	execute 'sign define GsignChange          text=| texthl=GsignSignChange linehl=DiffChange'
+	execute 'sign define GsignDelete          text=| texthl=GsignSignDelete linehl=DiffDelete'
+	execute 'sign define GsignChangeDelete    text=| texthl=GsignSignChange linehl=DiffChange'
+	execute 'sign define GsignRemoveFirstLine text=| texthl=GsignSignDelete linehl=DiffDelete'
+	let g:gsign_line_highlight = 1
+endfunction
+
+"-------------------------------------------------------
+" glog#syntax#gsign_line_disable
+"-------------------------------------------------------
+function! glog#syntax#gsign_line_disable() abort
+	execute 'sign define GsignAdd             text=| texthl=GsignSignAdd    linehl='
+	execute 'sign define GsignChange          text=| texthl=GsignSignChange linehl='
+	execute 'sign define GsignDelete          text=| texthl=GsignSignDelete linehl='
+	execute 'sign define GsignChangeDelete    text=| texthl=GsignSignChange linehl='
+	execute 'sign define GsignRemoveFirstLine text=| texthl=GsignSignDelete linehl='
+	let g:gsign_line_highlight = 0
+endfunction
+
+call glog#syntax#gsing_setup()
+
 let &cpoptions = s:save_cpo
 unlet s:save_cpo

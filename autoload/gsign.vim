@@ -5,6 +5,8 @@
 "===============================================================
 
 let s:sign_priority = exists('*sign_place') ? 'priority=10' : ''
+let s:internal = {}	" Gsignのサイン
+let s:external = {}	" 他のプラグインのサイン
 
 "-------------------------------------------------------
 " s:warning
@@ -63,21 +65,20 @@ endfunction
 " s:get_current_signs
 "-------------------------------------------------------
 function! s:get_current_signs(sy) abort
-	let a:sy.internal = {}	" Signifyのサイン
-	let a:sy.external = {}	" 他のプラグインのサイン
-
+	" このバッファのサインリストを取得する
 	let signlist = sign_getplaced(a:sy.buffer)[0].signs
+
 	for sign in signlist
-		if sign.name =~# '^Signify'
+		if sign.name =~# '^Gsign'
 			" Handle ambiguous signs. Assume you have signs on line 3 and 4.
 			" Removing line 3 would lead to the second sign to be shifted up
 			" to line 3. Now there are still 2 signs, both one line 3.
-			if has_key(a:sy.internal, sign.lnum)
-				execute 'sign unplace' a:sy.internal[sign.lnum].id 'buffer='.a:sy.buffer
+			if has_key(s:internal, sign.lnum)
+				execute 'sign unplace' s:internal[sign.lnum].id 'buffer='.a:sy.buffer
 			endif
-			let a:sy.internal[sign.lnum] = { 'type': sign.name, 'id': sign.id }
+			let s:internal[sign.lnum] = { 'type': sign.name, 'id': sign.id }
 		else
-			let a:sy.external[sign.lnum] = sign.id
+			let s:external[sign.lnum] = sign.id
 		endif
 	endfor
 endfunction
@@ -85,41 +86,34 @@ endfunction
 "-------------------------------------------------------
 " s:add_sign
 "-------------------------------------------------------
-function! s:add_sign(sy, line, type, ...) abort
-	" サインを配置する行番号を変更一覧に追加する
-	call add(a:sy.lines, a:line)
-
-	" この行にサインが配置済みであることを記録する
-	let a:sy.signtable[a:line] = 1
-
-	" 同じ行にSignifyのサインがすでに存在するか確認する。
-	if has_key(a:sy.internal, a:line)
-		" 既存サインと新しいサインの種類が同じか確認する。
-		if a:type == a:sy.internal[a:line].type
-			" 同じ種類の場合は既存サインを維持して、そのIDを返す。
-			return a:sy.internal[a:line].id
+function! s:add_sign(sy, line, type, text) abort
+	" 同じ行にGsignのサインがすでに存在するか
+	if has_key(s:internal, a:line)
+		" 既存サインと新しいサインの種類が同じか
+		if a:type == s:internal[a:line].type
+			" サインが同じ種類の場合は既存サインを維持してそのIDを返す
+			return s:internal[a:line].id
 		else
-			" 種類が異なる場合は既存サインのIDを再利用する。
-			let id = a:sy.internal[a:line].id
+			" 種類が異なる場合は既存サインのIDを再利用して更新する
+			let id = s:internal[a:line].id
 		endif
 	endif
 
-	" 再利用する既存IDがなければ新しいIDを採番する
+	" 利用する既存IDがなければ新しいIDを採番する
 	if !exists('id')
 		let id = a:sy.signid
 		let a:sy.signid += 1
 	endif
 
 	" 削除サインの場合は表示内容とハイライトを定義する
-	if a:type =~# 'SignifyDelete'
-		execute printf('sign define %s text=%s texthl=SignifySignDelete linehl=%s %s',
-					\ a:type,
-					\ a:1,
-					\ g:signify_line_highlight ? 'SignifyLineDelete' : '',
-					\ glog#highlight#numhl())
-	endif
+	" if a:type =~# 'GsignDelete'
+	" 	execute printf('sign define %s text=%s texthl=GsignSignDelete linehl=%s',
+	" 				\ a:type,
+	" 				\ a:text,
+	" 				\ g:gsign_line_highlight ? 'GsignLineDelete' : '')
+	" endif
 
-	" 採番または再利用したIDでサインをバッファに配置する。
+	" サインをバッファに配置する。
 	execute printf('sign place %d line=%d name=%s %s buffer=%s',
 				\ id,
 				\ a:line,
@@ -134,29 +128,47 @@ endfunction
 " s:external_sign_present
 "-------------------------------------------------------
 function! s:external_sign_present(sy, line) abort
-	" If sign priority is supported, so are multiple signs per line.
-	" Therefore, we can report no external signs present and let
-	" g:signify_priority control whether Sy's signs are shown.
+	" 指定行にGsign以外のサインがあるか確認し、外部サインとGsignサインの競合を避ける
+	" プライオリティが利用可能な環境では複数サインを同じ行に配置できるため何もせず終了する
 	if !empty(s:sign_priority)
-		return
+		return 0
 	endif
-	if has_key(a:sy.external, a:line)
-		if has_key(a:sy.internal, a:line)
-			" Remove Sy signs from lines with other signs.
-			execute 'sign unplace' a:sy.internal[a:line].id 'buffer='.a:sy.buffer
+
+	" プライオリティが利用できない環境では外部サインを優先して
+	" 同一行にあるGsignサインを配置しない
+	if has_key(s:external, a:line)
+		if has_key(s:internal, a:line)
+			execute 'sign unplace' s:internal[a:line].id 'buffer='.a:sy.buffer
 		endif
 		return 1
 	endif
+
+	return 0
 endfunction
 
 "-------------------------------------------------------
 " s:add_signs
 "-------------------------------------------------------
-function! s:add_signs(sy, ids, start, count, type) abort
+function! s:add_signs(sy, start, count, type, text) abort
+	let ids   = []
+	let lnums = []
+
+	" 指定行からカウント数分サインを配置する
 	for lnum in range(a:start, a:start + a:count - 1, 1)
-		if s:external_sign_present(a:sy, lnum) | continue | endif
-		call add(a:ids, s:add_sign(a:sy, lnum, a:type))
+		" 外部サインがある場合はGsignサインを配置しない
+		if s:external_sign_present(a:sy, lnum)
+			continue
+		endif
+
+		" サインを配置
+		let id = s:add_sign(a:sy, lnum, a:type, a:text)
+
+		" 配置したサインのIDと行番号をリスト化
+		call add(ids, id)
+		call add(lnums, lnum)
 	endfor
+
+	return [ids, lnums]
 endfunction
 
 "-------------------------------------------------------
@@ -164,6 +176,14 @@ endfunction
 " Parse a hunk as '@@ -273,3 +267,14' into [old_line, old_count, new_line, new_count]
 "-------------------------------------------------------
 function! s:parse_hunk(diffline) abort
+	" チャンクヘッダーの見方
+	" @@ -1,3 +1,3 @@
+	"	-1,3 : 変更前のファイル
+	"		-   : 変更前のファイルを指す
+	"		1,3 : 1行目から始まって、合計3行分の範囲を指す
+	"	+1,3 : 変更後のファイル
+	"		+   : 変更後のファイルを指す
+	"		1,3 : 1行目から始まって、合計3行分の範囲を指す
 	let tokens = matchlist(a:diffline, '^@@ -\v(\d+),?(\d*) \+(\d+),?(\d*)')
 	return [
 				\ str2nr(tokens[1]),
@@ -177,88 +197,106 @@ endfunction
 " s:process_diff
 "-------------------------------------------------------
 function! s:process_diff(sy, diff) abort
-	let a:sy.signtable             = {}
-	let a:sy.hunks                 = []
+	let a:sy.hunks = []
+	let signtable  = {}		" Gsignサインを配置した行リスト
 
+	" このバッファのサインリストを取得する
+	let s:internal = {}		" GsignサインのID辞書
+	let s:external = {}		" 外部プラグインサインのID辞書
 	call s:get_current_signs(a:sy)
 
-	" チャンクヘッダーの見方
-	" @@ -1,3 +1,3 @@
-	"	-1,3 : 変更前のファイル
-	"		-   : 変更前のファイルを指す
-	"		1,3 : 1行目から始まって、合計3行分の範囲を指す
-	"	+1,3 : 変更後のファイル
-	"		+   : 変更後のファイルを指す
-	"		1,3 : 1行目から始まって、合計3行分の範囲を指す
+	" チャンクヘッダー分(差分の数だけ)繰り返す
 	for line in filter(a:diff, 'v:val =~ "^@@ "')
-		" hunkは差分の @@ ... @@ で囲まれた「ひとまとまりの変更範囲」であり、複数行のhunkでは、各行にサインが置かれるため、ids も複数になる
-		let a:sy.lines = []
-		let ids        = []
-
 		" チャンクヘッダーから変更範囲を取得する
-		let [old_line, old_count, new_line, new_count] = s:parse_hunk(line)
+		let [ol, oc, nl, nc] = s:parse_hunk(line)
 
+		" hunkは差分の @@ ... @@ で囲まれた「ひとまとまりの変更範囲」であり、
+		" 複数行のhunkでは、各行にサインが置かれるため、ids も複数になる
+		let lnums = []
+		let ids   = []
+
+		"-------------------------------
 		" 純粋な追加: @@ -5,0 +6,2 @@
-		if old_count == 0 && new_count > 0
-			call s:add_signs(a:sy, ids, new_line, new_count, 'SignifyAdd')
+		"-------------------------------
+		if oc == 0 && nc > 0
+			let [ids, lnums] = s:add_signs(a:sy, nl, nc, 'GsignAdd', "")
 
+		"-------------------------------
 		" 純粋な削除: @@ -6,2 +5,0 @@
-		elseif old_count > 0 && new_count == 0
-			" 削除位置に他のプラグインによるサインがあるか確認し、存在する場合は処理を中断(continue)して既存のサインを上書きしない
-			if s:external_sign_present(a:sy, new_line) | continue | endif
-			" ファイルの先頭行が削除された場合、削除された行が存在しないため、代わりに新ファイルの1行目にサインを置く
-			if new_line == 0
-				call add(ids, s:add_sign(a:sy, 1, 'SignifyRemoveFirstLine'))
+		"-------------------------------
+		elseif oc > 0 && nc == 0
+			" 削除位置に外部プラグインのサインがあるか確認し、
+			" 存在する場合は処理を中断(continue)してサインを配置しない
+			if s:external_sign_present(a:sy, nl) | continue | endif
+
+			" ファイルの先頭行が削除された場合、削除された行が存在しないため、
+			" 代わりに新ファイルの1行目にサインを置く
+			if nl == 0
+				let [ids, lnums] = s:add_signs(a:sy, 1, 1, 'GsignRemoveFirstLine', "")
 			else
-				let text = old_count > 99 ? '_>' : old_count
-				call add(ids, s:add_sign(a:sy, new_line, 'SignifyDelete'. old_count, text))
+				let text = oc > 99 ? '_>' : oc
+"				let [ids, lnums] = s:add_signs(a:sy, nl, 1, 'GsignDelete'. oc, text)
+				let [ids, lnums] = s:add_signs(a:sy, nl, 1, 'GsignDelete', text)
 			endif
 
+		"-------------------------------
 		" 純粋な変更
-		elseif old_count > 0 && new_count > 0 && old_count == new_count
-			call s:add_signs(a:sy, ids, new_line, new_count, 'SignifyChange')
+		"-------------------------------
+		elseif oc > 0 && nc > 0 && oc == nc
+			let [ids, lnums] = s:add_signs(a:sy, nl, nc, 'GsignChange', "")
 
+		"-------------------------------
 		" 編集＋追加
-		elseif old_count > 0 && new_count > 0 && old_count < new_count
-			call s:add_signs(a:sy, ids, new_line, old_count, 'SignifyChange')
-			call s:add_signs(a:sy, ids, new_line + old_count, new_count - old_count, 'SignifyAdd')
+		"-------------------------------
+		elseif oc > 0 && nc > 0 && oc < nc
+			let [ids, lnums]  = s:add_signs(a:sy, nl, oc, 'GsignChange', "")
+			let [ids, lnums] += s:add_signs(a:sy, (nl + oc), (nc - oc), 'GsignAdd', "")
 
+		"-------------------------------------------------------------------
 		" 一部の行を編集＋一部の行を削除(例えば5行あった部分が3行になった)
-		elseif old_count > 0 && new_count > 0 && old_count > new_count
-			let deleted_count = old_count - new_count
-
-			" 削除された行は存在しないため、直前の行にサインを置く(先頭行よりも後ろ かつ 既にサインがないこと)
-			let prev_line_available = new_line > 1 && !get(a:sy.signtable, new_line - 1, 0)
+		"-------------------------------------------------------------------
+		elseif oc > 0 && nc > 0 && oc > nc
+      		let deleted_count = oc - nc
+			" 削除された行は存在しないため、直前の行にサインを置く
+			" (先頭行よりも後ろ かつ 既にサインがないこと)
+			let prev_line_available = nl > 1 && !get(signtable, nl - 1, 0)
 			if prev_line_available
-				let text = old_count > 99 ? '_>' : old_count
-				call add(ids, s:add_sign(a:sy, new_line - 1, 'SignifyDelete'. deleted_count, text))
+				let text = deleted_count > 99 ? '_>' : deleted_count
+"				let [ids, lnums]  = s:add_signs(a:sy, nl - 1, 1, 'GsignDelete'. deleted_count, text)
+				let [ids, lnums]  = s:add_signs(a:sy, nl - 1, 1, 'GsignDelete', text)
 			endif
 
-			let offset = 0
-			while offset < new_count
-				let line    = new_line + offset
+			for offset in range(0, nc - 1)
+				let line = nl + offset
 				if s:external_sign_present(a:sy, line) | continue | endif
 				if !prev_line_available && offset == 0
-					call add(ids, s:add_sign(a:sy, line, 'SignifyChangeDelete'))
+					let [ids, lnums] += s:add_signs(a:sy, line, 1, 'GsignChangeDelete', "")
 				else
-					call add(ids, s:add_sign(a:sy, line, 'SignifyChange'))
+					let [ids, lnums] += s:add_signs(a:sy, line, 1, 'GsignChange', "")
 				endif
-				let offset += 1
-			endwhile
+			endfor
 		endif
 
+		" hunk
 		if !empty(ids)
 			call add(a:sy.hunks, {
 						\ 'ids'  : ids,
-						\ 'start': a:sy.lines[0],
-						\ 'end'  : a:sy.lines[-1] })
+						\ 'start': lnums[0],
+						\ 'end'  : lnums[-1] })
 		endif
+
+		" サインを配置した行を辞書形式で記憶
+		for lnum in lnums | let signtable[lnum] = 1 | endfor
 	endfor
 
 	" Remove obsoleted signs.
-	for line in filter(keys(a:sy.internal), '!has_key(a:sy.signtable, v:val)')
-		execute 'sign unplace' a:sy.internal[line].id 'buffer='.a:sy.buffer
+	for line in filter(keys(s:internal), '!has_key(signtable, v:val)')
+		execute 'sign unplace' s:internal[line].id 'buffer='.a:sy.buffer
 	endfor
+
+	" クリア
+	let s:internal = {}
+	let s:external = {}
 endfunction
 
 "-------------------------------------------------------
@@ -349,7 +387,7 @@ endfunction
 " s:get_diff
 "-------------------------------------------------------
 function! s:get_diff(bufnr) abort
-	" 前回のジョブが起動中の場合は停止
+	" 前回のジョブが起動中の場合は停止する
 	call glog#job#stop_job(getbufvar(a:bufnr, 'sy_job'))
 
 	if getbufvar(a:bufnr, '&modified')
@@ -375,6 +413,34 @@ function! s:get_diff(bufnr) abort
 endfunction
 
 "-------------------------------------------------------
+" s:set_signs
+"-------------------------------------------------------
+function! s:set_signs(sy, diff) abort
+	if get(g:, 'gsign_line_highlight')
+		call glog#syntax#gsign_line_enable()
+	else
+		call glog#syntax#gsign_line_disable()
+	endif
+
+	call s:process_diff(a:sy, a:diff)
+endfunction
+
+"-------------------------------------------------------
+" s:remove_all_signs
+"-------------------------------------------------------
+function! s:remove_all_signs(bufnr) abort
+	let sy = getbufvar(a:bufnr, 'sy', {})
+
+	for hunk in get(sy, 'hunks', [])
+		for id in get(hunk, 'ids', [])
+			execute 'sign unplace' id 'buffer='.a:bufnr
+		endfor
+	endfor
+
+	let sy.hunks = []
+endfunction
+
+"-------------------------------------------------------
 " gsign#job_stdout
 "-------------------------------------------------------
 function! gsign#job_stdout(_job_id, data) dict abort
@@ -396,7 +462,7 @@ function! gsign#job_exit(job, exitval) dict abort
 		endfor
 	endif
 
-	" バッファにb:syが無い(=Signifyが初期化されていないバッファ)は対象外
+	" バッファにb:syが無い(=Gsignが初期化されていないバッファ)は対象外
 	let sy = getbufvar(self.bufnr, 'sy')
 	if empty(sy)
 		call s:warning('No b:sy found for ' . bufname(self.bufnr))
@@ -410,11 +476,16 @@ function! gsign#job_exit(job, exitval) dict abort
 		call map(self.stdoutbuf, printf('iconv(v:val, "%s", "%s")', fenc, enc))
 	endif
 
-	" 差分の有無をチェック(diffの場合は0が「差分なし」、1が「差分あり」を意味する)
+	" 差分有無をチェック(diffの場合は0が「差分なし」、1が「差分あり」を意味する)
 	let found_diff = self.difftool == 'diff' ? a:exitval <= 1 : a:exitval == 0
 	if found_diff
-		" 差分行にsignを付けるか計算して配置
-		call gsign#set_signs(sy, self.stdoutbuf)
+		if empty(self.stdoutbuf)
+			" サインを消去
+			call s:remove_all_signs(self.bufnr)
+		else
+			" 差分行にsignを付けるか計算して配置
+			call s:set_signs(sy, self.stdoutbuf)
+		endif
 	endif
 
 	" 「今のジョブだけが最新のジョブである場合だけ、ジョブIDをリセットする」
@@ -501,22 +572,15 @@ function! gsign#jump_hunk(count, direction)
 endfunction
 
 "-------------------------------------------------------
-" gsign#set_signs
+" gsign#toggle_highlight
 "-------------------------------------------------------
-function! gsign#set_signs(sy, diff) abort
-	" 差分が無い場合は全てのサインをクリア
-	if empty(a:diff)
-		call s:warning('No changes found.', 'git')
-		call s:remove_all_signs(a:sy.buffer)
-		return
-	endif
-
-	if get(g:, 'signify_line_highlight')
-		call glog#highlight#line_enable()
+function! gsign#toggle_highlight() abort
+	if get(g:, 'gsign_line_highlight')
+		call glog#syntax#gsign_line_disable()
 	else
-		call glog#highlight#line_disable()
+		call glog#syntax#gsign_line_enable()
 	endif
 
-	call s:process_diff(a:sy, a:diff)
+	redraw!
+	call gsign#start()
 endfunction
-

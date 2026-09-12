@@ -145,7 +145,7 @@ endfunction
 " 左右対比差分の表示（親コミット vs 現在のコミット）
 "---------------------------------------------------------------
 function! s:diff_side_by_side(filename, sha) abort
-	let caret = s:is_cmdexe() ? '^^' : '^'
+	let caret = s:is_cmdexe() ? '^^' : '^^'
 
 	" 実行元のウィンドウに移動
 	execute 'wincmd w'
