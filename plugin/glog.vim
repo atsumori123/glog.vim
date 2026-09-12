@@ -7,9 +7,11 @@ let g:gsign_locked = 0
 let s:save_cpo = &cpoptions
 set cpoptions&vim
 
-command! -nargs=* -bar Glog     call glog#log(<f-args>)
-command! -nargs=0 -bar Gsign    call gsign#toggle()
-command! -nargs=0 -bar GsignHi  call gsign#toggle_highlight()
+command! -nargs=* -bar Glog         call glog#log(<f-args>)
+command! -nargs=0 -bar Gsign        call gsign#toggle()
+command! -nargs=0 -bar GsignHi      call gsign#toggle_highlight()
+command! -nargs=0 -bar GsignEnable  call gsign#enable()
+command! -nargs=0 -bar GsignDisable call gsign#disable()
 
 augroup GlogSyntax
 	autocmd!
@@ -22,7 +24,10 @@ augroup GsignAugroup
 	autocmd!
 	autocmd QuickFixCmdPre  *vimgrep* let g:gsign_locked = 1
 	autocmd QuickFixCmdPost *vimgrep* let g:gsign_locked = 0
-	autocmd BufNewFile,BufRead * nested call gsign#start(bufnr('')) |
+	autocmd BufNewFile,BufRead * nested
+				\ if !get(g:, 'gsign_disable') |
+				\ 	call gsign#start(bufnr('')) |
+				\ endif
 augroup END
 
 " hunk jumping

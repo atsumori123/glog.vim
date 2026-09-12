@@ -16,7 +16,7 @@ function! s:glog_init(speify_file) abort
 
 	let s:glog = {}
 	let s:glog['GitRoot'] = git_root[0]
-	let s:glog['ExeFile'] = git_relative[0]
+	let s:glog['ExeFile'] = git_relative[0] . expand('%:t')
 	let s:glog['ExeWinnr'] = winnr()
 	let s:glog['ExeBufnr'] = bufnr('%')
 	let s:glog['SpecifyFile'] = a:speify_file
@@ -145,7 +145,7 @@ endfunction
 " 左右対比差分の表示（親コミット vs 現在のコミット）
 "---------------------------------------------------------------
 function! s:diff_side_by_side(filename, sha) abort
-	let caret = s:is_cmdexe() ? '^^' : '^^'
+	let caret = s:is_cmdexe() ? '^^' : '^'
 
 	" 実行元のウィンドウに移動
 	execute 'wincmd w'
@@ -311,6 +311,11 @@ endfunction
 " 指定リビジョンを表示
 "---------------------------------------------------------------
 function! s:show_revision()
+	" ハッシュ値 コミットログのところでのファイル表示は無効
+	let line = getline('.')
+	let sha = matchstr(line, '^\v[0-9a-f]+')
+	if !empty(sha) | return | endif
+
 	" ハッシュ値を取得
 	let sha = s:get_hash(line('.'))
 	if empty(sha) || str2nr(sha, 16) == 0 | return | endif
@@ -357,6 +362,8 @@ endfunction
 function! s:get_git_history(lognum) abort
 	" Gitコマンドの実行（ハッシュ、日付、ログ、ファイルステータスを取得）
 	let cmd = 'git log --pretty=format:"COMMIT:%h|%ad|%an|%s" --date=format:"%Y-%m-%d" --name-status'
+	let cmd .= s:get('SpecifyFile') ? ' -- ' . s:get('ExeFile') : ''
+	let cmd .= a:lognum != -1 ? ' -n ' . a:lognum : ''
 	let [lines, _] = glog#job#start_job_wait(cmd, s:get('GitRoot'))
 
 	let history = []

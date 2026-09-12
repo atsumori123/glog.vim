@@ -1,22 +1,6 @@
 let s:save_cpo = &cpoptions
 set cpoptions&vim
 
-"-------------------------------------------------------
-" s:callback_nvim_stdout
-"-------------------------------------------------------
-function! s:callback_nvim_stdout(_job_id, data, _event) dict abort
-	let self.stdoutbuf[-1] .= a:data[0]
-	call extend(self.stdoutbuf, a:data[1:])
-endfunction
-
-"-------------------------------------------------------
-" s:callback_nvim_exit
-"-------------------------------------------------------
-function! s:callback_nvim_exit(_job_id, exitval, _event) dict abort
-	" nvimは終了コールバックの引数に終了コードが直接渡されるため、vimの様な待機処理は不要
-	return s:handle_diff(self, a:exitval)
-endfunction
-
 "---------------------------------------------------------------
 " s:wrap_cmd
 "---------------------------------------------------------------
@@ -49,8 +33,8 @@ function! glog#job#start_job(cmd, opts, cwd, callback_stdout, callback_exit)
 	if has('nvim')
 		let job = jobstart(a:cmd, extend(a:opts, {
 					\ 'cwd'      : a:cwd,
-					\ 'on_stdout': function('s:callback_nvim_stdout'),
-					\ 'on_exit'  : function('s:callback_nvim_exit'),
+					\ 'on_stdout': function(a:callback_stdout),
+					\ 'on_exit'  : function(a:callback_exit),
 					\ }))
 	else
 		let opts = {
@@ -71,18 +55,30 @@ endfunction
 function! glog#job#start_job_wait(cmd, cwd)
 	let exit  = []
 	let lines = []
-	let opts = {
-				\ 'cwd'     : a:cwd,
-				\ 'out_cb'  : { j, str -> add(lines, str) },
-				\ 'err_cb'  : { j, str -> add(lines, str) },
-				\ 'exit_cb' : { j, code -> add(exit, code) }}
-	let job = job_start(s:wrap_cmd(a:cmd), opts)
+	if has('nvim')
+		let opts = {
+					\ 'cwd'      : a:cwd,
+					\ 'on_stdout': { j, data, event -> extend(lines,
+					\ 		empty(data) ? [] : (empty(data[-1]) ? data[0:-2] : data)) },
+					\ 'on_stderr': { j, data, event -> extend(lines,
+					\ 		empty(data) ? [] : (empty(data[-1]) ? data[0:-2] : data)) }}
+		let job = jobstart(s:wrap_cmd(a:cmd), opts)
+		let exit = jobwait([job])
+	else
+		let opts = {
+					\ 'cwd'     : a:cwd,
+					\ 'in_io'   : 'null',
+					\ 'out_cb'  : { j, str -> add(lines, str) },
+					\ 'err_cb'  : { j, str -> add(lines, str) },
+					\ 'exit_cb' : { j, code -> add(exit, code) }}
+		let job = job_start(s:wrap_cmd(a:cmd), opts)
 
-	" ジョブの終了を待つ
-	call ch_close_in(job)
-	while ch_status(job) !~# '^closed$\|^fail$' || job_status(job) ==# 'run'
-		sleep 1m
-	endwhile
+		" ジョブの終了を待つ
+		call ch_close_in(job)
+		while ch_status(job) !~# '^closed$\|^fail$' || job_status(job) ==# 'run'
+			sleep 1m
+		endwhile
+	endif
 
 	return [lines, exit[0]]
 endfunction
@@ -100,6 +96,20 @@ function! glog#job#stop_job(job) abort
 			silent! call job_stop(a:job)
 		endif
 	endif
+endfunction
+
+"-------------------------------------------------------
+" glog#job#stop_job
+"-------------------------------------------------------
+function! glog#job#exe_job(cmd, cwd) abort
+	let save_cwd = getcwd()
+	execute 'lcd ' . a:cwd
+	try
+		let result = systemlist(a:cmd, ' ')
+	finally
+		execute 'lcd ' . fnameescape(save_cwd)
+	endtry
+	return [result, v:shell_error]
 endfunction
 
 let &cpoptions = s:save_cpo

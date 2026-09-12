@@ -404,8 +404,8 @@ function! s:get_diff(bufnr) abort
 				\ cmd,
 				\ opts,
 				\ getbufvar(a:bufnr, 'sy').info.dir,
-				\ 'gsign#job_stdout',
-				\ 'gsign#job_exit'
+				\ has('nvim') ? 'gsign#nvim_job_stdout' : 'gsign#job_stdout',
+				\ has('nvim') ? 'gsign#nvim_exit' : 'gsign#job_exit'
 				\ )
 
 	" 今回の新しいジョブIDを保存
@@ -441,6 +441,67 @@ function! s:remove_all_signs(bufnr) abort
 endfunction
 
 "-------------------------------------------------------
+" s:handle_diff
+"-------------------------------------------------------
+function! s:handle_diff(sy, exitval) abort
+	" 一時ファイルの削除
+	if has_key(a:sy, 'tempfiles')
+		for f in a:sy.tempfiles
+			call delete(f)
+		endfor
+	endif
+
+	" バッファにb:syが無い(=Gsignが初期化されていないバッファ)は対象外
+	let sy = getbufvar(a:sy.bufnr, 'sy')
+	if empty(sy)
+		call s:warning('No b:sy found for ' . bufname(a:sy.bufnr))
+		return
+	endif
+
+	" 差分文字列の出力がバッファの文字コード違う場合は変換
+	let fenc = getbufvar(a:sy.bufnr, '&fenc')
+	let enc  = getbufvar(a:sy.bufnr, '&enc')
+	if (fenc != enc) && has('iconv')
+		call map(a:sy.stdoutbuf, printf('iconv(v:val, "%s", "%s")', fenc, enc))
+	endif
+
+	" 差分有無をチェック(diffの場合は0が「差分なし」、1が「差分あり」を意味する)
+	let found_diff = a:sy.difftool == 'diff' ? a:exitval <= 1 : a:exitval == 0
+	if found_diff
+		if empty(a:sy.stdoutbuf)
+			" サインを消去
+			call s:remove_all_signs(a:sy.bufnr)
+		else
+			" 差分行にsignを付けるか計算して配置
+			call s:set_signs(sy, a:sy.stdoutbuf)
+		endif
+	endif
+
+	" 「今のジョブだけが最新のジョブである場合だけ、ジョブIDをリセットする」
+	" もし古い非同期ジョブの結果が後から戻ってきても、新しいジョブの状態を壊さないようにする。
+	" これは、複数回 diff を走らせたときに起きる「古い結果が新しい結果を上書きする」問題を防ぐための安全策。
+	if get(a:sy, 'job_gen', -1) == getbufvar(a:sy.bufnr, 'sy_job_gen', -2)
+		call setbufvar(a:sy.bufnr, 'sy_job', 0)
+	endif
+endfunction
+
+"-------------------------------------------------------
+" gsign#nvim_job_stdout
+"-------------------------------------------------------
+function! gsign#nvim_job_stdout(_job_id, data, _event) dict abort
+	let self.stdoutbuf[-1] .= a:data[0]
+	call extend(self.stdoutbuf, a:data[1:])
+endfunction
+
+"-------------------------------------------------------
+" gsign#nvim_exit
+"-------------------------------------------------------
+function! gsign#nvim_exit(_job_id, exitval, _event) dict abort
+	" nvimは終了コールバックの引数に終了コードが直接渡されるため、vimの様な待機処理は不要
+	return s:handle_diff(self, a:exitval)
+endfunction
+
+"-------------------------------------------------------
 " gsign#job_stdout
 "-------------------------------------------------------
 function! gsign#job_stdout(_job_id, data) dict abort
@@ -455,46 +516,9 @@ endfunction
 " gsign#job_exit
 "-------------------------------------------------------
 function! gsign#job_exit(job, exitval) dict abort
-	" 一時ファイルの削除
-	if has_key(self, 'tempfiles')
-		for f in self.tempfiles
-			call delete(f)
-		endfor
-	endif
-
-	" バッファにb:syが無い(=Gsignが初期化されていないバッファ)は対象外
-	let sy = getbufvar(self.bufnr, 'sy')
-	if empty(sy)
-		call s:warning('No b:sy found for ' . bufname(self.bufnr))
-		return
-	endif
-
-	" 差分文字列の出力がバッファの文字コード違う場合は変換
-	let fenc = getbufvar(self.bufnr, '&fenc')
-	let enc  = getbufvar(self.bufnr, '&enc')
-	if (fenc != enc) && has('iconv')
-		call map(self.stdoutbuf, printf('iconv(v:val, "%s", "%s")', fenc, enc))
-	endif
-
-	" 差分有無をチェック(diffの場合は0が「差分なし」、1が「差分あり」を意味する)
-	let found_diff = self.difftool == 'diff' ? a:exitval <= 1 : a:exitval == 0
-	if found_diff
-		if empty(self.stdoutbuf)
-			" サインを消去
-			call s:remove_all_signs(self.bufnr)
-		else
-			" 差分行にsignを付けるか計算して配置
-			call s:set_signs(sy, self.stdoutbuf)
-		endif
-	endif
-
-	" 「今のジョブだけが最新のジョブである場合だけ、ジョブIDをリセットする」
-	" もし古い非同期ジョブの結果が後から戻ってきても、新しいジョブの状態を壊さないようにする。
-	" これは、複数回 diff を走らせたときに起きる「古い結果が新しい結果を上書きする」問題を防ぐための安全策。
-	if get(self, 'job_gen', -1) == getbufvar(self.bufnr, 'sy_job_gen', -2)
-		call setbufvar(self.bufnr, 'sy_job', 0)
-	endif
+	return s:handle_diff(self, a:exitval)
 endfunction
+
 "-------------------------------------------------------
 " gsign#start
 "-------------------------------------------------------
@@ -536,7 +560,7 @@ endfunction
 " gsign#stop
 "-------------------------------------------------------
 function! gsign#stop(...) abort
-	let bufnr = bufnr('')
+	let bufnr = a:0 ? a:1 : bufnr('')
 	if empty(getbufvar(a:0 ? a:1 : bufnr, 'sy')) | return | endif
 	call s:remove_all_signs(bufnr)
 	execute printf('autocmd! signify * <buffer=%d>', bufnr)
@@ -583,4 +607,26 @@ function! gsign#toggle_highlight() abort
 
 	redraw!
 	call gsign#start()
+endfunction
+
+"-------------------------------------------------------
+" gsign#enable
+"-------------------------------------------------------
+function! gsign#enable() abort
+	for bufnr in range(1, bufnr("$"))
+		call gsign#start(bufnr)
+	endfor
+	let g:gsign_disable = 0
+endfunction
+
+"-------------------------------------------------------
+" gsign#enable
+"-------------------------------------------------------
+function! gsign#disable() abort
+	for bufnr in range(1, bufnr(''))
+		if !empty(getbufvar(bufnr, 'sy'))
+			call gsign#stop(bufnr)
+		endif
+	endfor
+	let g:gsign_disable = 1
 endfunction
