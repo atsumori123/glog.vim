@@ -100,5 +100,26 @@ function! glog#syntax#status()
 	highlight GitWorking ctermfg=209 guifg=#F08650 cterm=none gui=none
 endfunction
 
+"-------------------------------------------------------
+" glog#syntax#gsing_setup
+"-------------------------------------------------------
+function! glog#syntax#gsing_setup() abort
+	highlight GsignSignAdd     ctermfg=255 guifg=#00A46e cterm=bold gui=bold
+	highlight GsignSignDelete  ctermfg=203 guifg=#e27878 cterm=bold gui=bold
+	highlight GsignSignChange  ctermfg=159 guifg=#0078d4 cterm=bold gui=bold
+endfunction
+
+"-------------------------------------------------------
+" glog#syntax#gsign_line_enable
+"-------------------------------------------------------
+function! glog#syntax#gsign_line_highlight(on_off) abort
+	execute 'sign define GsignAdd          text=| texthl=GsignSignAdd    linehl=' . (a:on_off ? 'DiffAdd'    : '')
+	execute 'sign define GsignChange       text=| texthl=GsignSignChange linehl=' . (a:on_off ? 'DiffChange' : '')
+	execute 'sign define GsignDelete       text=| texthl=GsignSignDelete linehl=' . (a:on_off ? 'DiffDelete' : '')
+	let g:gsign_line_highlight = a:on_off
+endfunction
+
+call glog#syntax#gsing_setup()
+
 let &cpoptions = s:save_cpo
 unlet s:save_cpo
