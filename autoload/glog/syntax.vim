@@ -113,9 +113,28 @@ endfunction
 " glog#syntax#gsign_line_enable
 "-------------------------------------------------------
 function! glog#syntax#gsign_line_highlight(on_off) abort
-	execute 'sign define GsignAdd          text=| texthl=GsignSignAdd    linehl=' . (a:on_off ? 'DiffAdd'    : '')
-	execute 'sign define GsignChange       text=| texthl=GsignSignChange linehl=' . (a:on_off ? 'DiffChange' : '')
-	execute 'sign define GsignDelete       text=| texthl=GsignSignDelete linehl=' . (a:on_off ? 'DiffDelete' : '')
+	let icon_dir = ''
+	let rtp_list = split(&runtimepath, ',')
+	for dir in rtp_list
+		if dir =~# '/glog.vim'
+			let icon_dir = dir . '/autoload/glog/icon'
+			break
+		endif
+	endfor
+
+    let icon_add    = icon_dir . '/add.xpm'
+    let icon_change = icon_dir . '/change.xpm'
+    let icon_delete = icon_dir . '/delete.xpm'
+
+	if has('gui_running') && filereadable(icon_add)
+        execute 'sign define GsignAdd    icon=' . fnameescape(icon_add)    . ' text=| texthl=GsignSignAdd    linehl=' . (a:on_off ? 'DiffAdd' : '')
+        execute 'sign define GsignChange icon=' . fnameescape(icon_change) . ' text=| texthl=GsignSignChange linehl=' . (a:on_off ? 'DiffChange' : '')
+        execute 'sign define GsignDelete icon=' . fnameescape(icon_delete) . ' text=| texthl=GsignSignDelete linehl=' . (a:on_off ? 'DiffDelete' : '')
+    else
+        execute 'sign define GsignAdd    text=| texthl=GsignSignAdd    linehl=' . (a:on_off ? 'DiffAdd'    : '')
+        execute 'sign define GsignChange text=| texthl=GsignSignChange linehl=' . (a:on_off ? 'DiffChange' : '')
+        execute 'sign define GsignDelete text=| texthl=GsignSignDelete linehl=' . (a:on_off ? 'DiffDelete' : '')
+    endif
 	let g:gsign_line_highlight = a:on_off
 endfunction
 

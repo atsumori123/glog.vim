@@ -432,6 +432,44 @@ function! s:handle_diff(out, exitval) abort
 endfunction
 
 "-------------------------------------------------------
+" s:toggle_sign
+"-------------------------------------------------------
+function! s:toggle_sign() abort
+	call call(empty(getbufvar(bufnr(''), 'sy')) ? 'gsign#start' : 'gsign#stop', [])
+endfunction
+
+"-------------------------------------------------------
+" toggle_highlight
+"-------------------------------------------------------
+function! s:toggle_highlight() abort
+	call glog#syntax#gsign_line_highlight(!get(g:, 'gsign_line_highlight', 0))
+
+	redraw!
+	call gsign#start()
+endfunction
+
+"-------------------------------------------------------
+" s:enable_gsign
+"-------------------------------------------------------
+function! s:enable_gsign() abort
+	for bufnr in range(1, bufnr("$"))
+		call gsign#start(bufnr)
+	endfor
+	let g:gsign_disable = 0
+endfunction
+
+"-------------------------------------------------------
+" s:disable_gsign
+"-------------------------------------------------------
+function! s:disable_gsign() abort
+	for bufnr in range(1, bufnr(''))
+		if !empty(getbufvar(bufnr, 'sy'))
+			call gsign#stop(bufnr)
+		endif
+	endfor
+	let g:gsign_disable = 1
+endfunction
+"-------------------------------------------------------
 " gsign#nvim_job_stdout
 "-------------------------------------------------------
 function! gsign#nvim_job_stdout(_job_id, data, _event) dict abort
@@ -514,23 +552,6 @@ function! gsign#stop(...) abort
 endfunction
 
 "-------------------------------------------------------
-" gsign#toggle
-"-------------------------------------------------------
-function! gsign#toggle() abort
-	call call(empty(getbufvar(bufnr(''), 'sy')) ? 'gsign#start' : 'gsign#stop', [])
-endfunction
-
-"-------------------------------------------------------
-" gsign#toggle_hl
-"-------------------------------------------------------
-function! gsign#toggle_hl() abort
-	call glog#syntax#gsign_line_highlight(!get(g:, 'gsign_line_highlight', 0))
-
-	redraw!
-	call gsign#start()
-endfunction
-
-"-------------------------------------------------------
 " gsign#jump_hunk
 "-------------------------------------------------------
 function! gsign#jump_hunk(count, direction)
@@ -552,23 +573,27 @@ function! gsign#jump_hunk(count, direction)
 endfunction
 
 "-------------------------------------------------------
-" gsign#enable
+" gsign#gsine
 "-------------------------------------------------------
-function! gsign#enable() abort
-	for bufnr in range(1, bufnr("$"))
-		call gsign#start(bufnr)
-	endfor
-	let g:gsign_disable = 0
+function! gsign#gsign() abort
+	echo ' 1: Toggle sign'
+	echo ' 2:.Toggle highlight'
+	echo ' 3: Enable Gsign'
+	echo ' 4: Disable Gsign'
+	echohl Question
+	let result = input(' Input number: ')
+	echohl None
+
+	redraw!
+
+	if result == 1
+		call s:toggle_sign()
+	elseif result == 2
+		call s:toggle_highlight()
+	elseif result == 3
+		call s:enable_gsign()
+	elseif result == 4
+		call s:disable_gsign()
+	endif
 endfunction
 
-"-------------------------------------------------------
-" gsign#enable
-"-------------------------------------------------------
-function! gsign#disable() abort
-	for bufnr in range(1, bufnr(''))
-		if !empty(getbufvar(bufnr, 'sy'))
-			call gsign#stop(bufnr)
-		endif
-	endfor
-	let g:gsign_disable = 1
-endfunction
