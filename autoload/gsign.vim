@@ -41,7 +41,7 @@ endfunction
 " s:set_buflocal_autocmds
 "-------------------------------------------------------
 function! s:set_buflocal_autocmds(bufnr) abort
-	augroup signify
+	augroup gsign
 		execute printf('autocmd! * <buffer=%d>', a:bufnr)
 
 "		execute printf('autocmd BufEnter     <buffer=%d> call gsign#start()', a:bufnr)
@@ -86,7 +86,7 @@ endfunction
 "-------------------------------------------------------
 " s:add_sign
 "-------------------------------------------------------
-function! s:add_sign(sy, line, type, text) abort
+function! s:add_sign(sy, line, type) abort
 	" 同じ行にGsignのサインがすでに存在するか
 	if has_key(s:internal, a:line)
 		" 既存サインと新しいサインの種類が同じか
@@ -104,14 +104,6 @@ function! s:add_sign(sy, line, type, text) abort
 		let id = a:sy.signid
 		let a:sy.signid += 1
 	endif
-
-	" 削除サインの場合は表示内容とハイライトを定義する
-	" if a:type =~# 'GsignDelete'
-	" 	execute printf('sign define %s text=%s texthl=GsignSignDelete linehl=%s',
-	" 				\ a:type,
-	" 				\ a:text,
-	" 				\ g:gsign_line_highlight ? 'GsignLineDelete' : '')
-	" endif
 
 	" サインをバッファに配置する。
 	execute printf('sign place %d line=%d name=%s %s buffer=%s',
@@ -149,7 +141,7 @@ endfunction
 "-------------------------------------------------------
 " s:add_signs
 "-------------------------------------------------------
-function! s:add_signs(sy, start, count, type, text) abort
+function! s:add_signs(sy, start, count, type) abort
 	let ids   = []
 	let lnums = []
 
@@ -161,7 +153,7 @@ function! s:add_signs(sy, start, count, type, text) abort
 		endif
 
 		" サインを配置
-		let id = s:add_sign(a:sy, lnum, a:type, a:text)
+		let id = s:add_sign(a:sy, lnum, a:type)
 
 		" 配置したサインのIDと行番号をリスト化
 		call add(ids, id)
@@ -219,7 +211,7 @@ function! s:process_diff(sy, diff) abort
 		" 純粋な追加: @@ -5,0 +6,2 @@
 		"-------------------------------
 		if oc == 0 && nc > 0
-			let [ids, lnums] = s:add_signs(a:sy, nl, nc, 'GsignAdd', "")
+			let [ids, lnums] = s:add_signs(a:sy, nl, nc, 'GsignAdd')
 
 		"-------------------------------
 		" 純粋な削除: @@ -6,2 +5,0 @@
@@ -231,49 +223,36 @@ function! s:process_diff(sy, diff) abort
 
 			" ファイルの先頭行が削除された場合、削除された行が存在しないため、
 			" 代わりに新ファイルの1行目にサインを置く
-			if nl == 0
-				let [ids, lnums] = s:add_signs(a:sy, 1, 1, 'GsignRemoveFirstLine', "")
-			else
-				let text = oc > 99 ? '_>' : oc
-"				let [ids, lnums] = s:add_signs(a:sy, nl, 1, 'GsignDelete'. oc, text)
-				let [ids, lnums] = s:add_signs(a:sy, nl, 1, 'GsignDelete', text)
-			endif
+			let lnum = nl == 0 ? 1 : nl
+			let [ids, lnums] = s:add_signs(a:sy, lnum, 1, 'GsignDelete')
 
 		"-------------------------------
 		" 純粋な変更
 		"-------------------------------
 		elseif oc > 0 && nc > 0 && oc == nc
-			let [ids, lnums] = s:add_signs(a:sy, nl, nc, 'GsignChange', "")
+			let [ids, lnums] = s:add_signs(a:sy, nl, nc, 'GsignChange')
 
 		"-------------------------------
 		" 編集＋追加
 		"-------------------------------
 		elseif oc > 0 && nc > 0 && oc < nc
-			let [ids, lnums]  = s:add_signs(a:sy, nl, oc, 'GsignChange', "")
-			let [ids, lnums] += s:add_signs(a:sy, (nl + oc), (nc - oc), 'GsignAdd', "")
+			let [ids, lnums]  = s:add_signs(a:sy, nl, oc, 'GsignChange')
+			let [ids, lnums] += s:add_signs(a:sy, (nl + oc), (nc - oc), 'GsignAdd')
 
 		"-------------------------------------------------------------------
 		" 一部の行を編集＋一部の行を削除(例えば5行あった部分が3行になった)
 		"-------------------------------------------------------------------
 		elseif oc > 0 && nc > 0 && oc > nc
-      		let deleted_count = oc - nc
 			" 削除された行は存在しないため、直前の行にサインを置く
 			" (先頭行よりも後ろ かつ 既にサインがないこと)
-			let prev_line_available = nl > 1 && !get(signtable, nl - 1, 0)
-			if prev_line_available
-				let text = deleted_count > 99 ? '_>' : deleted_count
-"				let [ids, lnums]  = s:add_signs(a:sy, nl - 1, 1, 'GsignDelete'. deleted_count, text)
-				let [ids, lnums]  = s:add_signs(a:sy, nl - 1, 1, 'GsignDelete', text)
+			if nl > 1 && !get(signtable, nl - 1, 0)
+				let [ids, lnums]  = s:add_signs(a:sy, nl - 1, 1, 'GsignDelete')
 			endif
 
 			for offset in range(0, nc - 1)
 				let line = nl + offset
 				if s:external_sign_present(a:sy, line) | continue | endif
-				if !prev_line_available && offset == 0
-					let [ids, lnums] += s:add_signs(a:sy, line, 1, 'GsignChangeDelete', "")
-				else
-					let [ids, lnums] += s:add_signs(a:sy, line, 1, 'GsignChange', "")
-				endif
+				let [ids, lnums] += s:add_signs(a:sy, line, 1, 'GsignChange')
 			endfor
 		endif
 
@@ -342,58 +321,38 @@ function! s:get_job_gen() abort
 endfunction
 
 "-------------------------------------------------------
-" s:initialize_job
-"-------------------------------------------------------
-function! s:initialize_job(bufnr) abort
-	let cmd = 'git diff --no-color --no-ext-diff -U0 -- ' . getbufvar(a:bufnr, 'sy').info.file
-	let opts = {
-				\ 'job_gen'   : s:get_job_gen(),
-				\ 'stdoutbuf' : [''],
-				\ 'bufnr'     : a:bufnr,
-				\ 'difftool'  : 'git'
-				\ }
-
-	return [cmd, opts]
-endfunction
-
-"-------------------------------------------------------
-" s:initialize_buffer_job
-"-------------------------------------------------------
-function! s:initialize_buffer_job(bufnr) abort
-	" バッファデータの一時ファイルを作成
-	let bufferfile = tempname()
-	call s:write_buffer(a:bufnr, bufferfile)
-
-	" commitバージョンの一時ファイル作成コマンド
-	let basefile = tempname()
-	let base_cmd = 'git show HEAD:./' . getbufvar(a:bufnr, 'sy').info.file . '>' . fnameescape(basefile) . ' && '
-
-	" コマンド実行形式にする
-	let cmd = base_cmd . 'diff -U0 ' . fnameescape(basefile) . ' ' . fnameescape(bufferfile)
-
-	" 一時ファイルも記憶
-	let opts = {
-				\ 'job_gen'   : s:get_job_gen(),
-				\ 'stdoutbuf' : [''],
-				\ 'bufnr'     : a:bufnr,
-				\ 'difftool'  : 'diff',
-				\ 'tempfiles' : [basefile, bufferfile]
-				\ }
-
-	return [cmd, opts]
-endfunction
-
-"-------------------------------------------------------
 " s:get_diff
 "-------------------------------------------------------
 function! s:get_diff(bufnr) abort
 	" 前回のジョブが起動中の場合は停止する
 	call glog#job#stop_job(getbufvar(a:bufnr, 'sy_job'))
 
+	let opts = {
+				\ 'job_gen'   : s:get_job_gen(),
+				\ 'stdoutbuf' : [''],
+				\ 'bufnr'     : a:bufnr,
+				\ }
+
 	if getbufvar(a:bufnr, '&modified')
-		let [cmd, opts] = s:initialize_buffer_job(a:bufnr)
+		" バッファデータの一時ファイルを作成
+		let bufferfile = tempname()
+		call s:write_buffer(a:bufnr, bufferfile)
+
+		" commitバージョンの一時ファイルを作成
+		let basefile = tempname()
+
+		" コマンドを作成
+		let cmd = 'git show HEAD:./' . getbufvar(a:bufnr, 'sy').info.file . '>' . fnameescape(basefile) .
+					\ '&& diff -U0 ' . fnameescape(basefile) . ' ' . fnameescape(bufferfile)
+		" optsにdifftoolと一時ファイルの情報も記憶
+		let opts.difftool  = 'diff'
+		let opts.tempfiles = [basefile, bufferfile]
+
 	else
-		let [cmd, opts] = s:initialize_job(a:bufnr)
+		" コマンドを作成
+		let cmd = 'git diff --no-color --no-ext-diff -U0 -- ' . getbufvar(a:bufnr, 'sy').info.file
+		" optsにdifftoolの情報も記憶
+		let opts.difftool = 'git'
 	endif
 
 	" 今回のジョブ世代番号(前回の世代+1)を保存
@@ -404,25 +363,12 @@ function! s:get_diff(bufnr) abort
 				\ cmd,
 				\ opts,
 				\ getbufvar(a:bufnr, 'sy').info.dir,
-				\ has('nvim') ? 'gsign#nvim_job_stdout' : 'gsign#job_stdout',
-				\ has('nvim') ? 'gsign#nvim_exit' : 'gsign#job_exit'
+				\ has('nvim') ? 'gsign#nvim_job_stdout' : 'gsign#vim_job_stdout',
+				\ has('nvim') ? 'gsign#nvim_exit' : 'gsign#vim_job_exit'
 				\ )
 
 	" 今回の新しいジョブIDを保存
 	call setbufvar(a:bufnr, 'sy_job', job)
-endfunction
-
-"-------------------------------------------------------
-" s:set_signs
-"-------------------------------------------------------
-function! s:set_signs(sy, diff) abort
-	if get(g:, 'gsign_line_highlight')
-		call glog#syntax#gsign_line_enable()
-	else
-		call glog#syntax#gsign_line_disable()
-	endif
-
-	call s:process_diff(a:sy, a:diff)
 endfunction
 
 "-------------------------------------------------------
@@ -443,45 +389,45 @@ endfunction
 "-------------------------------------------------------
 " s:handle_diff
 "-------------------------------------------------------
-function! s:handle_diff(sy, exitval) abort
+function! s:handle_diff(out, exitval) abort
 	" 一時ファイルの削除
-	if has_key(a:sy, 'tempfiles')
-		for f in a:sy.tempfiles
-			call delete(f)
-		endfor
+	if has_key(a:out, 'tempfiles')
+		for f in a:out.tempfiles | call delete(f) | endfor
 	endif
 
 	" バッファにb:syが無い(=Gsignが初期化されていないバッファ)は対象外
-	let sy = getbufvar(a:sy.bufnr, 'sy')
+	let bufnr = a:out.bufnr
+	let sy = getbufvar(bufnr, 'sy')
 	if empty(sy)
-		call s:warning('No b:sy found for ' . bufname(a:sy.bufnr))
+		call s:warning('No b:sy found for ' . bufname(bufnr))
 		return
 	endif
 
 	" 差分文字列の出力がバッファの文字コード違う場合は変換
-	let fenc = getbufvar(a:sy.bufnr, '&fenc')
-	let enc  = getbufvar(a:sy.bufnr, '&enc')
+	let fenc = getbufvar(bufnr, '&fenc')
+	let enc  = getbufvar(bufnr, '&enc')
 	if (fenc != enc) && has('iconv')
-		call map(a:sy.stdoutbuf, printf('iconv(v:val, "%s", "%s")', fenc, enc))
+		call map(a:out.stdoutbuf, printf('iconv(v:val, "%s", "%s")', fenc, enc))
 	endif
 
 	" 差分有無をチェック(diffの場合は0が「差分なし」、1が「差分あり」を意味する)
-	let found_diff = a:sy.difftool == 'diff' ? a:exitval <= 1 : a:exitval == 0
+	let found_diff = a:out.difftool == 'diff' ? a:exitval <= 1 : a:exitval == 0
 	if found_diff
-		if empty(a:sy.stdoutbuf)
+		if empty(a:out.stdoutbuf)
 			" サインを消去
-			call s:remove_all_signs(a:sy.bufnr)
+			call s:remove_all_signs(bufnr)
 		else
-			" 差分行にsignを付けるか計算して配置
-			call s:set_signs(sy, a:sy.stdoutbuf)
+			" hunkにsignを付けるか確認して配置
+			call glog#syntax#gsign_line_highlight(get(g:, 'gsign_line_highlight', 0))
+			call s:process_diff(sy, a:out.stdoutbuf)
 		endif
 	endif
 
 	" 「今のジョブだけが最新のジョブである場合だけ、ジョブIDをリセットする」
 	" もし古い非同期ジョブの結果が後から戻ってきても、新しいジョブの状態を壊さないようにする。
 	" これは、複数回 diff を走らせたときに起きる「古い結果が新しい結果を上書きする」問題を防ぐための安全策。
-	if get(a:sy, 'job_gen', -1) == getbufvar(a:sy.bufnr, 'sy_job_gen', -2)
-		call setbufvar(a:sy.bufnr, 'sy_job', 0)
+	if get(a:out, 'job_gen', -1) == getbufvar(bufnr, 'sy_job_gen', -2)
+		call setbufvar(bufnr, 'sy_job', 0)
 	endif
 endfunction
 
@@ -502,9 +448,9 @@ function! gsign#nvim_exit(_job_id, exitval, _event) dict abort
 endfunction
 
 "-------------------------------------------------------
-" gsign#job_stdout
+" gsign#vim_job_stdout
 "-------------------------------------------------------
-function! gsign#job_stdout(_job_id, data) dict abort
+function! gsign#vim_job_stdout(_job_id, data) dict abort
 	" a:dataはジョブが標準出力へ出した1行分の文字列
 	" dict:この関数が辞書コンテキストで呼ばれることを示す。get_diff()で本館数登録時にopts辞書を渡して登録している
 	" そのため、selfはopts辞書を参照する
@@ -513,9 +459,9 @@ function! gsign#job_stdout(_job_id, data) dict abort
 endfunction
 
 "-------------------------------------------------------
-" gsign#job_exit
+" gsign#vim_job_exit
 "-------------------------------------------------------
-function! gsign#job_exit(job, exitval) dict abort
+function! gsign#vim_job_exit(job, exitval) dict abort
 	return s:handle_diff(self, a:exitval)
 endfunction
 
@@ -563,7 +509,7 @@ function! gsign#stop(...) abort
 	let bufnr = a:0 ? a:1 : bufnr('')
 	if empty(getbufvar(a:0 ? a:1 : bufnr, 'sy')) | return | endif
 	call s:remove_all_signs(bufnr)
-	execute printf('autocmd! signify * <buffer=%d>', bufnr)
+	execute printf('autocmd! gsign * <buffer=%d>', bufnr)
 	call setbufvar(bufnr, 'sy', {})
 endfunction
 
@@ -572,6 +518,16 @@ endfunction
 "-------------------------------------------------------
 function! gsign#toggle() abort
 	call call(empty(getbufvar(bufnr(''), 'sy')) ? 'gsign#start' : 'gsign#stop', [])
+endfunction
+
+"-------------------------------------------------------
+" gsign#toggle_hl
+"-------------------------------------------------------
+function! gsign#toggle_hl() abort
+	call glog#syntax#gsign_line_highlight(!get(g:, 'gsign_line_highlight', 0))
+
+	redraw!
+	call gsign#start()
 endfunction
 
 "-------------------------------------------------------
@@ -593,20 +549,6 @@ function! gsign#jump_hunk(count, direction)
 	if !empty(hunk)
 		execute 'sign jump '. hunk.ids[0] .' buffer='. b:sy.buffer
 	endif
-endfunction
-
-"-------------------------------------------------------
-" gsign#toggle_highlight
-"-------------------------------------------------------
-function! gsign#toggle_highlight() abort
-	if get(g:, 'gsign_line_highlight')
-		call glog#syntax#gsign_line_disable()
-	else
-		call glog#syntax#gsign_line_enable()
-	endif
-
-	redraw!
-	call gsign#start()
 endfunction
 
 "-------------------------------------------------------

@@ -9,7 +9,7 @@ set cpoptions&vim
 
 command! -nargs=* -bar Glog         call glog#log(<f-args>)
 command! -nargs=0 -bar Gsign        call gsign#toggle()
-command! -nargs=0 -bar GsignHi      call gsign#toggle_highlight()
+command! -nargs=0 -bar GsignHl      call gsign#toggle_hl()
 command! -nargs=0 -bar GsignEnable  call gsign#enable()
 command! -nargs=0 -bar GsignDisable call gsign#disable()
 

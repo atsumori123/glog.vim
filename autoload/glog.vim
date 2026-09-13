@@ -27,7 +27,7 @@ endfunction
 " 実行環境がcmd.exeか
 "---------------------------------------------------------------
 function! s:is_cmdexe()
-	return has('win32') && $COMSPEC =~? 'cmd\.exe' && !has('gui_running') ? 1 : 0
+	return has('win32') && &shell =~? '\m\(^\|[\\/]\)cmd\(\.exe\)\?$' ? 1 : 0
 endfunction
 
 "---------------------------------------------------------------

@@ -112,25 +112,11 @@ endfunction
 "-------------------------------------------------------
 " glog#syntax#gsign_line_enable
 "-------------------------------------------------------
-function! glog#syntax#gsign_line_enable() abort
-	execute 'sign define GsignAdd             text=| texthl=GsignSignAdd    linehl=DiffAdd'
-	execute 'sign define GsignChange          text=| texthl=GsignSignChange linehl=DiffChange'
-	execute 'sign define GsignDelete          text=| texthl=GsignSignDelete linehl=DiffDelete'
-	execute 'sign define GsignChangeDelete    text=| texthl=GsignSignChange linehl=DiffChange'
-	execute 'sign define GsignRemoveFirstLine text=| texthl=GsignSignDelete linehl=DiffDelete'
-	let g:gsign_line_highlight = 1
-endfunction
-
-"-------------------------------------------------------
-" glog#syntax#gsign_line_disable
-"-------------------------------------------------------
-function! glog#syntax#gsign_line_disable() abort
-	execute 'sign define GsignAdd             text=| texthl=GsignSignAdd    linehl='
-	execute 'sign define GsignChange          text=| texthl=GsignSignChange linehl='
-	execute 'sign define GsignDelete          text=| texthl=GsignSignDelete linehl='
-	execute 'sign define GsignChangeDelete    text=| texthl=GsignSignChange linehl='
-	execute 'sign define GsignRemoveFirstLine text=| texthl=GsignSignDelete linehl='
-	let g:gsign_line_highlight = 0
+function! glog#syntax#gsign_line_highlight(on_off) abort
+	execute 'sign define GsignAdd          text=| texthl=GsignSignAdd    linehl=' . (a:on_off ? 'DiffAdd'    : '')
+	execute 'sign define GsignChange       text=| texthl=GsignSignChange linehl=' . (a:on_off ? 'DiffChange' : '')
+	execute 'sign define GsignDelete       text=| texthl=GsignSignDelete linehl=' . (a:on_off ? 'DiffDelete' : '')
+	let g:gsign_line_highlight = a:on_off
 endfunction
 
 call glog#syntax#gsing_setup()
