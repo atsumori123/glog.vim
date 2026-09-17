@@ -8,11 +8,13 @@ let s:diff_buffers = []
 " glog初期化
 "---------------------------------------------------------------
 function! s:glog_init(speify_file) abort
-	let [git_root, _] = glog#job#start_job_wait('git rev-parse --show-toplevel', expand('%:h:p'))
-	if empty(git_root) | return 0 | endif
+	let cwd = expand('%:p:h')
 
-	let [git_relative, _] = glog#job#start_job_wait('git rev-parse --show-prefix', expand('%:h:p'))
-	if empty(git_relative) | return 0 | endif
+	let [git_root, exit] = glog#job#start_job_wait(['git', 'rev-parse', '--show-toplevel'], cwd)
+	if exit | return 0 | endif
+
+	let [git_relative, exit] = glog#job#start_job_wait(['git', 'rev-parse', '--show-prefix'], cwd)
+	if exit | return 0 | endif
 
 	let s:glog = {}
 	let s:glog['GitRoot'] = git_root[0]
@@ -151,10 +153,9 @@ function! s:diff_side_by_side(filename, sha) abort
 	execute 'wincmd w'
 
 	" 左ペイン：親コミット（1つ前のリビジョン）
-	let cmd = printf('git show %s%s:%s', a:sha, caret, a:filename)
-	let [result, _] = glog#job#start_job_wait(cmd, s:get('GitRoot'))
-
-	let bufnr = s:open_sidebyside(a:filename, result)
+	let cmd		   = ['git', 'show', a:sha . caret . ':' . a:filename]
+	let [lines, _] = glog#job#start_job_wait(cmd, s:get('GitRoot'))
+	let bufnr	   = s:open_sidebyside(a:filename, lines)
 	call add(s:diff_buffers, bufnr)
 	execute 'file [' . a:sha . '^] ' . fnamemodify(a:filename, ':t')
 	diffthis
@@ -163,10 +164,9 @@ function! s:diff_side_by_side(filename, sha) abort
 	bel vsplit
 
 	" 右ペイン：現在のコミット
-	let cmd = printf('git show %s:%s', a:sha, a:filename)
-	let [result, _] = glog#job#start_job_wait(cmd, s:get('GitRoot'))
-
-	let bufnr = s:open_sidebyside(a:filename, result)
+	let cmd		   = ['git', 'show', a:sha . ':' . a:filename]
+	let [lines, _] = glog#job#start_job_wait(cmd, s:get('GitRoot'))
+	let bufnr	   = s:open_sidebyside(a:filename, lines)
 	call add(s:diff_buffers, bufnr)
 	execute 'file [' . a:sha . '] ' . fnamemodify(a:filename, ':t')
 	diffthis
@@ -192,10 +192,9 @@ function! s:diff_side_by_side_head(filename) abort
 	execute 'wincmd w'
 
 	" 左ペイン：HEAD のバージョン
-	let cmd = printf('git show HEAD:%s', a:filename)
-	let [result, _] = glog#job#start_job_wait(cmd, s:get('GitRoot'))
-
-	let bufnr = s:open_sidebyside(a:filename, result)
+	let cmd		   = ['git', 'show', 'HEAD:' . a:filename]
+	let [lines, _] = glog#job#start_job_wait(cmd, s:get('GitRoot'))
+	let bufnr	   = s:open_sidebyside(a:filename, lines)
 	call add(s:diff_buffers, bufnr)
 	execute 'file [HEAD] ' . fnamemodify(a:filename, ':t')
 	diffthis
@@ -259,11 +258,7 @@ function! s:show_diff() abort
 
 	if !empty(sha)
 		" カーソルがハッシュ値のところだったら、Unified形式のdiff
-		if str2nr(sha, 16) == 0
-			let cmd = 'git diff'
-		else
-			let cmd = 'git show ' . sha
-		endif
+		let cmd = str2nr(sha, 16) == 0 ? ['git', 'diff'] : ['git', 'show', sha]
 		let [lines, _] = glog#job#start_job_wait(cmd, s:get('GitRoot'))
 
 		" glog起動ウィンドウに移動
@@ -325,7 +320,7 @@ function! s:show_revision()
 	if empty(filename) | return | endif
 
 	" gitコマンドを実行
-	let cmd = printf('git show %s:%s', sha, filename)
+	let cmd = ['git', 'show', sha . ':' . filename]
 	let [lines, _] = glog#job#start_job_wait(cmd, s:get('GitRoot'))
 
 	" glog起動ウィンドウに移動
@@ -344,8 +339,9 @@ endfunction
 " WORKINGの変更状況を取得
 "---------------------------------------------------------------
 function! s:get_status() abort
-	let cmd = 'git status -s -uno'
+	let cmd = ['git', 'status', '-s', '-uno']
 	let [lines, _] = glog#job#start_job_wait(cmd, s:get('GitRoot'))
+	call filter(lines, '!empty(v:val)')
 	return empty(lines) ? [] :
 			\ [{
 			\ 'sha': '',
@@ -361,9 +357,9 @@ endfunction
 "---------------------------------------------------------------
 function! s:get_git_history(lognum) abort
 	" Gitコマンドの実行（ハッシュ、日付、ログ、ファイルステータスを取得）
-	let cmd = 'git log --pretty=format:"COMMIT:%h|%ad|%an|%s" --date=format:"%Y-%m-%d" --name-status'
-	let cmd .= s:get('SpecifyFile') ? ' -- ' . s:get('ExeFile') : ''
-	let cmd .= a:lognum != -1 ? ' -n ' . a:lognum : ''
+	let cmd = ['git', 'log', '--pretty=format:COMMIT:%h|%ad|%an|%s', '--date=format:%Y-%m-%d', '--name-status']
+	let cmd += s:get('SpecifyFile') ? ['--', s:get('ExeFile')] : []
+	let cmd += a:lognum != -1 ? ['-n', a:lognum] : []
 	let [lines, _] = glog#job#start_job_wait(cmd, s:get('GitRoot'))
 
 	let history = []

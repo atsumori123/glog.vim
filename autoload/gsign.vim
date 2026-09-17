@@ -281,10 +281,7 @@ endfunction
 "-------------------------------------------------------
 " s:write_buffer
 "-------------------------------------------------------
-function! s:write_buffer(bufnr, file)
-	" オリジナルのバッファデータ取得
-	let bufcontents = getbufline(a:bufnr, 1, '$')
-
+function! s:write_buffer(bufnr, bufcontents, file)
 	" 1行目が存在しないか
 	if line2byte(1) == -1
 		call writefile([], a:file)
@@ -293,23 +290,23 @@ function! s:write_buffer(bufnr, file)
 
 	" DOS形式の場合、一時ファイルの改行をオリジナルと同じにする。line\n→line\r\nに変換する。(LFをCRLFに変換)
 	if getbufvar(a:bufnr, '&fileformat') ==# 'dos'
-		call map(bufcontents, 'v:val."\r"')
+		call map(a:bufcontents, 'v:val."\r"')
 	endif
 
 	" ファイルエンコーディングと文字エンコーディングが異なる場合はファイルエンコーディングに変換
 	let fenc = getbufvar(a:bufnr, '&fileencoding')
 	let enc  = getbufvar(a:bufnr, '&encoding')
 	if fenc !=# enc
-		call map(bufcontents, 'iconv(v:val, "'.enc.'", "'.fenc.'")')
+		call map(a:bufcontents, 'iconv(v:val, "'.enc.'", "'.fenc.'")')
 	endif
 
 	" BOM(Byte Of Mark)
 	if getbufvar(a:bufnr, '&bomb')
-		let bufcontents[0]='﻿'.bufcontents[0]
+		let a:bufcontents[0]='﻿'.a:bufcontents[0]
 	endif
 
   	" 差分を取るための一時ファイルに書き込む
-	call writefile(bufcontents, a:file)
+	call writefile(a:bufcontents, a:file)
 endfunction
 
 "-------------------------------------------------------
@@ -336,21 +333,25 @@ function! s:get_diff(bufnr) abort
 	if getbufvar(a:bufnr, '&modified')
 		" バッファデータの一時ファイルを作成
 		let bufferfile = tempname()
-		call s:write_buffer(a:bufnr, bufferfile)
+		call s:write_buffer(a:bufnr, getbufline(a:bufnr, 1, '$'), bufferfile)
 
 		" commitバージョンの一時ファイルを作成
 		let basefile = tempname()
+		let cmd = ['git', 'show', 'HEAD:./' . getbufvar(a:bufnr, 'sy').info.file]
+		let [lines, _] = glog#job#start_job_wait(cmd, getbufvar(a:bufnr, 'sy').info.dir)
+		call s:write_buffer(a:bufnr, lines, basefile)
 
-		" コマンドを作成
-		let cmd = 'git show HEAD:./' . getbufvar(a:bufnr, 'sy').info.file . '>' . fnameescape(basefile) .
-					\ '&& diff -U0 ' . fnameescape(basefile) . ' ' . fnameescape(bufferfile)
+		" diffコマンドを作成
+		let cmd = ['diff', '-U0', basefile, bufferfile]
+
 		" optsにdifftoolと一時ファイルの情報も記憶
 		let opts.difftool  = 'diff'
 		let opts.tempfiles = [basefile, bufferfile]
 
 	else
 		" コマンドを作成
-		let cmd = 'git diff --no-color --no-ext-diff -U0 -- ' . getbufvar(a:bufnr, 'sy').info.file
+"		let cmd = 'git diff --no-color --no-ext-diff -U0 -- ' . getbufvar(a:bufnr, 'sy').info.file
+		let cmd = ['git', 'diff', '--no-color', '--no-ext-diff', '-U0', '--', getbufvar(a:bufnr, 'sy').info.file]
 		" optsにdifftoolの情報も記憶
 		let opts.difftool = 'git'
 	endif
@@ -469,6 +470,7 @@ function! s:disable_gsign() abort
 	endfor
 	let g:gsign_disable = 1
 endfunction
+
 "-------------------------------------------------------
 " gsign#nvim_job_stdout
 "-------------------------------------------------------
@@ -499,7 +501,7 @@ endfunction
 "-------------------------------------------------------
 " gsign#vim_job_exit
 "-------------------------------------------------------
-function! gsign#vim_job_exit(job, exitval) dict abort
+function! gsign#vim_job_exit(exitval) dict abort
 	return s:handle_diff(self, a:exitval)
 endfunction
 
@@ -524,7 +526,7 @@ function! gsign#start(...) abort
 					\ 'signid':		0x100,
 					\ 'info':		{
 					\    'dir':  fnamemodify(path, ':p:h'),
-					\    'file': s:escape(fnamemodify(path, ':t'))
+					\    'file': fnamemodify(path, ':t')
 					\ }}
 		call setbufvar(bufnr, 'sy', new_sy)
 		call s:set_buflocal_autocmds(bufnr)
