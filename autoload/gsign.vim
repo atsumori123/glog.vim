@@ -350,8 +350,8 @@ function! s:get_diff(bufnr) abort
 
 	else
 		" コマンドを作成
-"		let cmd = 'git diff --no-color --no-ext-diff -U0 -- ' . getbufvar(a:bufnr, 'sy').info.file
 		let cmd = ['git', 'diff', '--no-color', '--no-ext-diff', '-U0', '--', getbufvar(a:bufnr, 'sy').info.file]
+
 		" optsにdifftoolの情報も記憶
 		let opts.difftool = 'git'
 	endif
@@ -588,41 +588,25 @@ function! s:show_hunk() abort
 	endif
 
 	let current_line = line('.')
-	let header_index = -1
-	for i in range(0, len(sy.diff) - 1)
-		" チャンクヘッダーか
-		let diffline = sy.diff[i]
-		if diffline !~# '^@@ '
-			continue
+	let lines		 = []
+	let in_target	 = 0
+	for diffline in sy.diff
+		if diffline =~# '^@@ '
+			if in_target | break | endif
+
+			let parsed    = s:parse_hunk(diffline)
+			let new_line  = parsed[2]
+			let new_count = parsed[3]
+			let new_end	  = new_count == 0 ? max([1, new_line]) : new_line + new_count - 1
+			let in_target = new_line <= current_line && current_line <= new_end
 		endif
-
-		" チャンクヘッダーから変更範囲を取得する
-		let [ol, oc, nl, nc] = s:parse_hunk(diffline)
-
-		" 変更が削除の場合は、削除位置の直前を対象にする
-		let new_end = nc == 0 ? max([1, nl]) : nl + nc - 1
-
-		" チャンクヘッダーの範囲に現在行が入るか
-		if nl <= current_line && current_line <= new_end
-			let header_index = i
-			break
+		if in_target
+			call add(lines, diffline)
 		endif
 	endfor
 
-	" 現在行に対するhunkが無い場合は終了
-	if header_index == -1
-		call s:warning('No hunk found on the current line')
-		return
-	endif
-
-	" 現在のチャンクヘッダーから次のチャンクヘッダー直前までを取得する
-	let next_header_index = match(sy.diff, '^@@ ', header_index + 1)
-	let next_header_index = next_header_index == -1 ? len(sy.diff) : next_header_index
-
-	" hunkを抽出
-	let lines = sy.diff[header_index : next_header_index - 1]
 	if empty(lines)
-		call s:warning('No hunk found')
+		call s:warning('No hunk found on the current line')
 		return
 	endif
 
