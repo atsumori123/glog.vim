@@ -417,7 +417,9 @@ function! s:handle_diff(out, exitval) abort
 		if empty(a:out.stdoutbuf)
 			" サインを消去
 			call s:remove_all_signs(bufnr)
+			let sy.diff = []
 		else
+			let sy.diff = copy(a:out.stdoutbuf)
 			" hunkにsignを付けるか確認して配置
 			call glog#syntax#gsign_line_highlight(get(g:, 'gsign_line_highlight', 0))
 			call s:process_diff(sy, a:out.stdoutbuf)
@@ -575,13 +577,84 @@ function! gsign#jump_hunk(count, direction)
 endfunction
 
 "-------------------------------------------------------
+" 現在行のhunkを下部バッファに表示
+"-------------------------------------------------------
+function! s:show_hunk() abort
+	" hunk情報があるか確認
+	let sy = getbufvar(bufnr(''), 'sy', {})
+	if empty(sy) || empty(get(sy, 'diff', []))
+		call s:warning('No hunk found')
+		return
+	endif
+
+	let current_line = line('.')
+	let header_index = -1
+	for i in range(0, len(sy.diff) - 1)
+		" チャンクヘッダーか
+		let diffline = sy.diff[i]
+		if diffline !~# '^@@ '
+			continue
+		endif
+
+		" チャンクヘッダーから変更範囲を取得する
+		let [ol, oc, nl, nc] = s:parse_hunk(diffline)
+
+		" 変更が削除の場合は、削除位置の直前を対象にする
+		let new_end = nc == 0 ? max([1, nl]) : nl + nc - 1
+
+		" チャンクヘッダーの範囲に現在行が入るか
+		if nl <= current_line && current_line <= new_end
+			let header_index = i
+			break
+		endif
+	endfor
+
+	" 現在行に対するhunkが無い場合は終了
+	if header_index == -1
+		call s:warning('No hunk found on the current line')
+		return
+	endif
+
+	" 現在のチャンクヘッダーから次のチャンクヘッダー直前までを取得する
+	let next_header_index = match(sy.diff, '^@@ ', header_index + 1)
+	let next_header_index = next_header_index == -1 ? len(sy.diff) : next_header_index
+
+	" hunkを抽出
+	let lines = sy.diff[header_index : next_header_index - 1]
+	if empty(lines)
+		call s:warning('No hunk found')
+		return
+	endif
+
+	" hunk表示用ウィンドウを作成
+	let hunk_winnr = bufwinnr('__gsign_hunk__')
+	if hunk_winnr == -1
+		execute 'botright 10 split __gsign_hunk__'
+		setlocal buftype=nofile bufhidden=delete noswapfile nobuflisted nowrap
+		setlocal filetype=gdiff
+		setlocal winfixheight winfixwidth
+	else
+		execute hunk_winnr . 'wincmd w'
+		setlocal modifiable
+		silent %delete _
+	endif
+
+	" バッファにhunkを描画
+	setlocal modifiable
+	call setline(1, lines)
+	setlocal nomodifiable
+	normal! gg
+endfunction
+
+"-------------------------------------------------------
 " gsign#gsine
 "-------------------------------------------------------
 function! gsign#gsign() abort
 	echo ' 1: Toggle sign'
 	echo ' 2:.Toggle highlight'
-	echo ' 3: Enable Gsign'
-	echo ' 4: Disable Gsign'
+	echo ' 3:.Show hunk'
+	echo ' 5: Enable Gsign'
+	echo ' 6: Disable Gsign'
 	echohl Question
 	let result = input(' Input number: ')
 	echohl None
@@ -593,8 +666,10 @@ function! gsign#gsign() abort
 	elseif result == 2
 		call s:toggle_highlight()
 	elseif result == 3
-		call s:enable_gsign()
+		call s:show_hunk()
 	elseif result == 4
+		call s:enable_gsign()
+	elseif result == 6
 		call s:disable_gsign()
 	endif
 endfunction
