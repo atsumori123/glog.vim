@@ -351,6 +351,7 @@ function! s:get_diff(bufnr) abort
 	else
 		" コマンドを作成
 		let cmd = ['git', 'diff', '--no-color', '--no-ext-diff', '-U0', '--', getbufvar(a:bufnr, 'sy').info.file]
+"		let cmd = ['git', 'diff', '--no-color', '--no-ext-diff', '--', getbufvar(a:bufnr, 'sy').info.file]
 
 		" optsにdifftoolの情報も記憶
 		let opts.difftool = 'git'
@@ -573,6 +574,11 @@ function! gsign#jump_hunk(count, direction)
 
 	if !empty(hunk)
 		execute 'sign jump '. hunk.ids[0] .' buffer='. b:sy.buffer
+
+		" hunkウィンドウ表示中の場合はhunkを更新する
+		if bufwinnr('__gsign_hunk__') != -1
+			call s:show_hunk()
+		endif
 	endif
 endfunction
 
@@ -594,40 +600,44 @@ function! s:show_hunk() abort
 		if diffline =~# '^@@ '
 			if in_target | break | endif
 
-			let parsed    = s:parse_hunk(diffline)
-			let new_line  = parsed[2]
-			let new_count = parsed[3]
-			let new_end	  = new_count == 0 ? max([1, new_line]) : new_line + new_count - 1
-			let in_target = new_line <= current_line && current_line <= new_end
+			let [ol, oc, nl, nc] = s:parse_hunk(diffline)
+"			let lnum = (oc > 0 && nc == 0) || (oc > 0 && nc > 0 && oc > nc) ? current_line + 1 : current_line
+			let lnum = (oc > 0 && nc > 0 && oc > nc) ? current_line + 1 : current_line
+			let new_end	  = nc == 0 ? max([1, nl]) : nl + nc - 1
+			let in_target = nl <= lnum && lnum <= new_end
 		endif
 		if in_target
 			call add(lines, diffline)
 		endif
 	endfor
 
+	let hunk_winnr = bufwinnr('__gsign_hunk__')
+
 	if empty(lines)
-		call s:warning('No hunk found on the current line')
-		return
+		call add(lines, 'No hunk found on the current line')
+		if hunk_winnr == -1 | call s:warning(lines[0]) | return | endif
 	endif
 
-	" hunk表示用ウィンドウを作成
-	let hunk_winnr = bufwinnr('__gsign_hunk__')
 	if hunk_winnr == -1
-		execute 'botright 10 split __gsign_hunk__'
+		" hunk表示用ウィンドウを作成
+		execute 'vsplit __gsign_hunk__'
 		setlocal buftype=nofile bufhidden=delete noswapfile nobuflisted nowrap
 		setlocal filetype=gdiff
 		setlocal winfixheight winfixwidth
-	else
-		execute hunk_winnr . 'wincmd w'
-		setlocal modifiable
-		silent %delete _
-	endif
 
-	" バッファにhunkを描画
-	setlocal modifiable
-	call setline(1, lines)
-	setlocal nomodifiable
-	normal! gg
+		" hunkを描画
+		setlocal modifiable
+		silent! call setbufline('%', 1, lines)
+		setlocal nomodifiable
+
+	else
+		" hunkウィンドウのhunkを更新
+		let hunk_bufnr = winbufnr(hunk_winnr)
+		:call setbufvar(hunk_bufnr, '&modifiable', 1)
+		silent! call deletebufline(hunk_bufnr, 1, '$')
+		silent! call setbufline(hunk_bufnr, 1, lines)
+		:call setbufvar(hunk_bufnr, '&modifiable', 0)
+	endif
 endfunction
 
 "-------------------------------------------------------
@@ -637,8 +647,8 @@ function! gsign#gsign() abort
 	echo ' 1: Toggle sign'
 	echo ' 2:.Toggle highlight'
 	echo ' 3:.Show hunk'
-	echo ' 5: Enable Gsign'
-	echo ' 6: Disable Gsign'
+	echo ' 4: Enable Gsign'
+	echo ' 5: Disable Gsign'
 	echohl Question
 	let result = input(' Input number: ')
 	echohl None
@@ -653,7 +663,7 @@ function! gsign#gsign() abort
 		call s:show_hunk()
 	elseif result == 4
 		call s:enable_gsign()
-	elseif result == 6
+	elseif result == 5
 		call s:disable_gsign()
 	endif
 endfunction
