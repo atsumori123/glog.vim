@@ -586,8 +586,11 @@ endfunction
 " 現在行のhunkを下部バッファに表示
 "-------------------------------------------------------
 function! s:show_hunk() abort
+	" カレントバッファ番号
+	let bufnr = bufnr('')
+
 	" hunk情報があるか確認
-	let sy = getbufvar(bufnr(''), 'sy', {})
+	let sy = getbufvar(bufnr, 'sy', {})
 	if empty(sy) || empty(get(sy, 'diff', []))
 		call s:warning('No hunk found')
 		return
@@ -595,6 +598,7 @@ function! s:show_hunk() abort
 
 	let current_line = line('.')
 	let lines		 = []
+	let hunk		 = {}
 	let in_target	 = 0
 	for diffline in sy.diff
 		if diffline =~# '^@@ '
@@ -605,9 +609,23 @@ function! s:show_hunk() abort
 			let lnum = (oc > 0 && nc > 0 && oc > nc) ? current_line + 1 : current_line
 			let new_end	  = nc == 0 ? max([1, nl]) : nl + nc - 1
 			let in_target = nl <= lnum && lnum <= new_end
+
+			" hunkの初期化
+			if in_target
+				let hunk = {
+						\ 'bufnr': bufnr,
+						\ 'new_start': nl,
+						\ 'new_count': nc,
+						\ 'old_lines': [],
+						\ }
+			endif
 		endif
 		if in_target
+			" hunkの行を登録。削除の場合はコミットバージョンを登録
 			call add(lines, diffline)
+			if diffline =~# '^-' && diffline !~# '^--- '
+				call add(hunk.old_lines, strpart(diffline, 1))
+			endif
 		endif
 	endfor
 
@@ -624,6 +642,7 @@ function! s:show_hunk() abort
 		setlocal buftype=nofile bufhidden=delete noswapfile nobuflisted nowrap
 		setlocal filetype=gdiff
 		setlocal winfixheight winfixwidth
+		nnoremap <buffer> <silent> dp :<C-u>call <SID>reset_hunk()<CR>
 
 		" hunkを描画
 		setlocal modifiable
@@ -637,6 +656,61 @@ function! s:show_hunk() abort
 		silent! call deletebufline(hunk_bufnr, 1, '$')
 		silent! call setbufline(hunk_bufnr, 1, lines)
 		:call setbufvar(hunk_bufnr, '&modifiable', 0)
+	endif
+
+	call setbufvar(winbufnr(hunk_winnr == -1 ? winnr() : hunk_winnr), 'gsign_hunk', hunk)
+endfunction
+
+"-------------------------------------------------------
+" 表示中のhunkをコミット状態に戻す
+"-------------------------------------------------------
+function! s:reset_hunk() abort
+	" hunkバッファのバッファ番号を取得する
+	let hunk_bufnr = bufnr('')
+
+	" hunkバッファに保存したhunkの情報を取得する
+	let hunk = getbufvar(hunk_bufnr, 'gsign_hunk', {})
+
+	" hunkを取得した元バッファのバッファ番号を取得する
+	let bufnr = get(hunk, 'bufnr', 0)
+
+	" hunk情報または元バッファが存在しない場合は処理を中止する
+	if empty(hunk) || !bufexists(bufnr)
+		call s:warning('No hunk found')
+		return
+	endif
+
+	" 現在のソース側でhunkが始まる行番号、hunkが占める行数、コミットバージョンの行を取得する
+	let new_start = get(hunk, 'new_start', 0)
+	let new_count = get(hunk, 'new_count', 0)
+	let old_lines = get(hunk, 'old_lines', [])
+
+	" 追加・変更された場合は削除する
+	if new_count > 0
+		" hunkの現在側の行範囲を元バッファから削除する
+		call deletebufline(bufnr, new_start, new_start + new_count - 1)
+	endif
+
+	" コミットバージョンのみに存在する行がある場合は挿入する
+	if !empty(old_lines)
+		call appendbufline(bufnr, max([0, new_start - 1]), old_lines)
+	endif
+
+	" バッファを表示しているウィンドウ番号を取得する
+	let source_winnr = bufwinnr(bufnr)
+	if source_winnr == -1
+		call s:warning('Source buffer is not visible')
+		return
+	endif
+
+	" 元バッファを表示しているウィンドウへ移動してサインを再計算する
+	execute source_winnr . 'wincmd w'
+	call gsign#start(bufnr)
+
+	" hunkウィンドウを閉じる
+	let hunk_winnr = bufwinnr(hunk_bufnr)
+	if hunk_winnr != -1
+		execute hunk_winnr . 'wincmd c'
 	endif
 endfunction
 
