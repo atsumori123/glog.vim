@@ -472,6 +472,12 @@ function! s:disable_gsign() abort
 		endif
 	endfor
 	let g:gsign_disable = 1
+
+	" hunkウィンドウを閉じる
+	let hunk_winnr = bufwinnr('__gsign_hunk__')
+	if hunk_winnr != -1
+		execute hunk_winnr . 'wincmd c'
+	endif
 endfunction
 
 "-------------------------------------------------------
@@ -652,10 +658,10 @@ function! s:show_hunk() abort
 	else
 		" hunkウィンドウのhunkを更新
 		let hunk_bufnr = winbufnr(hunk_winnr)
-		:call setbufvar(hunk_bufnr, '&modifiable', 1)
+		call setbufvar(hunk_bufnr, '&modifiable', 1)
 		silent! call deletebufline(hunk_bufnr, 1, '$')
 		silent! call setbufline(hunk_bufnr, 1, lines)
-		:call setbufvar(hunk_bufnr, '&modifiable', 0)
+		call setbufvar(hunk_bufnr, '&modifiable', 0)
 	endif
 
 	call setbufvar(winbufnr(hunk_winnr == -1 ? winnr() : hunk_winnr), 'gsign_hunk', hunk)
@@ -693,7 +699,8 @@ function! s:reset_hunk() abort
 
 	" コミットバージョンのみに存在する行がある場合は挿入する
 	if !empty(old_lines)
-		call appendbufline(bufnr, max([0, new_start - 1]), old_lines)
+		let ofs = new_count > 0 ? -1 : 0
+		call appendbufline(bufnr, max([0, new_start + ofs]), old_lines)
 	endif
 
 	" バッファを表示しているウィンドウ番号を取得する
@@ -703,14 +710,21 @@ function! s:reset_hunk() abort
 		return
 	endif
 
+	" hunk情報削除
+	call setbufvar(hunk_bufnr, 'gsign_hunk', [])
+
 	" 元バッファを表示しているウィンドウへ移動してサインを再計算する
 	execute source_winnr . 'wincmd w'
 	call gsign#start(bufnr)
 
-	" hunkウィンドウを閉じる
+	" hunkウィンドウのhunkを更新
 	let hunk_winnr = bufwinnr(hunk_bufnr)
 	if hunk_winnr != -1
-		execute hunk_winnr . 'wincmd c'
+		let hunk_bufnr = winbufnr(hunk_winnr)
+		call setbufvar(hunk_bufnr, '&modifiable', 1)
+		silent! call deletebufline(hunk_bufnr, 1, '$')
+		silent! call setbufline(hunk_bufnr, 1, 'No hunk found on the current line')
+		call setbufvar(hunk_bufnr, '&modifiable', 0)
 	endif
 endfunction
 
