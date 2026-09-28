@@ -529,6 +529,11 @@ function! gsign#start(...) abort
 
 	let sy = getbufvar(bufnr, 'sy')
 	if empty(sy)
+		" git管理ファイルかチェックし、管理外なら中断する
+		let cmd = ['git', 'ls-files', '--error-unmatch', '--', ':(literal)'.fnamemodify(path, ':t')]
+		let [_, git_exit] = glog#job#start_job_wait(cmd, fnamemodify(path, ':p:h'))
+		if git_exit != 0 | return | endif
+
 		let new_sy = {
 					\ 'buffer':		bufnr,
 					\ 'hunks':		[],
