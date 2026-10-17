@@ -644,7 +644,7 @@ function! s:show_hunk() abort
 
 	if empty(lines)
 		call add(lines, 'No hunk found on the current line')
-		if hunk_winnr == -1 | call s:warning(lines[0]) | return | endif
+"		if hunk_winnr == -1 | call s:warning(lines[0]) | return | endif
 	endif
 
 	if hunk_winnr == -1
@@ -652,7 +652,6 @@ function! s:show_hunk() abort
 		execute 'vsplit __gsign_hunk__'
 		setlocal buftype=nofile bufhidden=delete noswapfile nobuflisted nowrap
 		setlocal filetype=gdiff
-		setlocal winfixheight winfixwidth
 		nnoremap <buffer> <silent> dp :<C-u>call <SID>reset_hunk()<CR>
 
 		" hunkを描画
