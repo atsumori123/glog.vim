@@ -7,23 +7,23 @@ set cpoptions&vim
 function! glog#syntax#log()
     " ハッシュ
 	syntax match GitHash '^\v[0-9a-f]+'
-    highlight GitHash ctermfg=151 guifg=#afd7af cterm=none gui=none
+    highlight link GitHash diffAdded
 
     " 日付（YYYY-MM-DD）
     syntax match GitDate '\v\|\s\zs\d{4}-\d{2}-\d{2}\ze\s\|'
-    highlight GitDate ctermfg=187 guifg=#d7d7af cterm=none gui=none
+    highlight link GitDate Constant
 
 	" ファイル状態 (M)
 	syntax match GitStatM '^\s\+\zsM\ze\s'
-    highlight GitStatM ctermfg=151 guifg=#afd7af cterm=none gui=none
+    highlight link GitStatM diffAdded
 
 	" ファイル状態 (M以外)
 	syntax match GitStatO '^\s\+\zs[ADRUTC]\ze\s'
-    highlight GitStatO ctermfg=209 guifg=#F08650 cterm=none gui=none
+    highlight link GitStatO diffRemoved
 
 	" Auther
 	syntax match GitAuther '.*|.*\s\zs\S\+$'
-    highlight GitAuther ctermfg=243 guifg=#808080 cterm=italic gui=italic
+    highlight link GitAuther Comment
 endfunction
 
 "---------------------------------------------------------------
@@ -32,59 +32,59 @@ endfunction
 function! glog#syntax#diff()
     " commit ハッシュ行（commit 行頭）
     syntax match GitDiffCommit '^commit \x\+'
-    highlight GitDiffCommit ctermfg=Yellow guifg=#ffff87 cterm=none gui=none
+    highlight link GitDiffCommit Title
 
     " Author 行
     syntax match GitDiffAuthor '^Author:.*'
-    highlight GitDiffAuthor ctermfg=Cyan guifg=#87d7ff cterm=none gui=none
+    highlight link GitDiffAuthor Identifier
 
     " Date 行
     syntax match GitDiffDate '^Date:.*'
-    highlight GitDiffDate ctermfg=Cyan guifg=#87d7ff cterm=none gui=none
+    highlight link GitDiffDate Identifier
 
     " Hunk header @@ -1,3 +1,9 @@
     syntax match GitDiffHunk '^@@.*@@'
-    highlight GitDiffHunk ctermfg=Magenta guifg=#d7afd7 cterm=none gui=none
+    highlight link GitDiffHunk Statement
 
     " diff --git a/... b/...
     syntax match GitDiffHeader '^diff --git .*'
-    highlight GitDiffHeader ctermfg=Blue guifg=#87d7d7 cterm=none gui=none
+    highlight link GitDiffHeader Type
 
     " index 行
     syntax match GitDiffIndex '^index .*'
-    highlight GitDiffIndex ctermfg=Grey guifg=#808080 cterm=none gui=none
+    highlight link GitDiffIndex Comment
 
     " new file mode / deleted file mode / mode change
     syntax match GitDiffFileMode '^new file mode \|^deleted file mode \|^old mode \|^new mode'
-    highlight GitDiffFileMode ctermfg=Yellow guifg=#ffff87 cterm=none gui=none
+    highlight link GitDiffFileMode Title
 
     " rename from / rename to
     syntax match GitDiffRename '^rename from \|^rename to'
-    highlight GitDiffRename ctermfg=Magenta guifg=#ff87ff cterm=none gui=none
+    highlight link GitDiffRename Constant
 
     " similarity index / dissimilarity index
     syntax match GitDiffSimilarity '^similarity index \|^dissimilarity index'
-    highlight GitDiffSimilarity ctermfg=DarkYellow guifg=#d7af00 cterm=none gui=none
+    highlight link GitDiffSimilarity Special
 
     " Binary files
     syntax match GitDiffBinary '^Binary files.*'
-    highlight GitDiffBinary ctermfg=LightGrey guifg=#d0d0d0 cterm=none gui=none
+    highlight link GitDiffBinary Comment
 
     " --- a/file
     syntax match GitDiffOldFile '^--- .*'
-    highlight GitDiffOldFile ctermfg=209 guifg=#F08650 cterm=none gui=none
+    highlight link GitDiffOldFile diffRemoved
 
     " +++ b/file
     syntax match GitDiffNewFile '^+++ .*'
-    highlight GitDiffNewFile ctermfg=Green guifg=#afd7af cterm=none gui=none
+    highlight link GitDiffNewFile diffAdded
 
-    " 削除行（GitHubの赤）
+    " 削除行
     syntax match GitDiffRemoved '^-.*'
-    highlight GitDiffRemoved ctermfg=209 guifg=#F08650 cterm=none gui=none
+    highlight link GitDiffRemoved diffRemoved
 
-    " 追加行（GitHubの緑）
+    " 追加行
     syntax match GitDiffAdded '^+.*'
-    highlight GitDiffAdded ctermfg=Green guifg=#afd7af cterm=none gui=none
+    highlight link GitDiffAdded diffAdded
 endfunction
 
 "---------------------------------------------------------------
@@ -93,20 +93,20 @@ endfunction
 function! glog#syntax#status()
 	" staging (M / A / D / R / ?)
     syntax match GitStaging '\%1c.'
-	highlight GitStaging  ctermfg=Green guifg=#afd7af cterm=none gui=none
+	highlight link GitStaging diffAdded
 
-	" workings(M / A / D / R / ?)
+	" working(M / A / D / R / ?)
     syntax match GitWorking '\%2c.'
-	highlight GitWorking ctermfg=209 guifg=#F08650 cterm=none gui=none
+	highlight link GitWorking diffRemoved
 endfunction
 
 "-------------------------------------------------------
 " glog#syntax#gsing_setup
 "-------------------------------------------------------
 function! glog#syntax#gsing_setup() abort
-	highlight GsignSignAdd     ctermfg=255 guifg=#00A46e cterm=bold gui=bold
-	highlight GsignSignDelete  ctermfg=203 guifg=#e27878 cterm=bold gui=bold
-	highlight GsignSignChange  ctermfg=159 guifg=#0078d4 cterm=bold gui=bold
+	highlight link GsignSignAdd GitGutterAdd
+	highlight link GsignSignDelete GitGutterDelete
+	highlight link GsignSignChange GitGutterChange
 endfunction
 
 "-------------------------------------------------------
